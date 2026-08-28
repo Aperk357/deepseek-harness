@@ -232,6 +232,13 @@ describe('PDV effect recovery across a hard crash', () => {
         callId: EFFECT_CALL_ID,
         request: EFFECT_REQUEST,
       })).toThrow('STALE_FENCE')
+      expect(() => store.reconcile({
+        missionId: EFFECT_MISSION_ID,
+        attemptId: 'pdv-attempt-2',
+        fence: 2,
+        callId: EFFECT_CALL_ID,
+        request: '{"operation":"changed"}',
+      })).toThrow('IDEMPOTENCY_CONFLICT')
       const competingStore = new PdvEffectStore(databasePath)
       try {
         expect(store.reconcile({
