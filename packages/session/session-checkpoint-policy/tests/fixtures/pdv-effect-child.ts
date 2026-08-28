@@ -115,18 +115,23 @@ export class PdvEffectStore {
     fence: number
     callId: string
     request: string
-  }): { replayed: true; result: string } {
-    const authority = this.db.prepare('SELECT mission_id, attempt_id, fence FROM pdv_authority WHERE mission_id = ?')
-      .get(input.missionId) as AuthorityRow | undefined
-    if (authority?.attempt_id !== input.attemptId || authority.fence !== input.fence) {
-      throw new Error('STALE_FENCE')
-    }
-    const existing = this.db.prepare('SELECT mission_id, tool_call_id, submitted_attempt_id, submitted_fence, request_sha256, result FROM pdv_effects WHERE mission_id = ? AND tool_call_id = ?')
-      .get(input.missionId, input.callId) as EffectRow | undefined
-    if (existing === undefined) throw new Error('EFFECT_NOT_FOUND')
-    if (existing.submitted_fence > input.fence) throw new Error('FUTURE_RECEIPT')
-    if (existing.request_sha256 !== sha256(input.request)) throw new Error('IDEMPOTENCY_CONFLICT')
-    return { replayed: true, result: existing.result }
+  }, whileLocked?: () => void): { replayed: true; result: string } {
+    return this.transaction(() => {
+      const authority = this.db.prepare('SELECT mission_id, attempt_id, fence FROM pdv_authority WHERE mission_id = ?')
+        .get(input.missionId) as AuthorityRow | undefined
+      if (authority?.attempt_id !== input.attemptId || authority.fence !== input.fence) {
+        throw new Error('STALE_FENCE')
+      }
+      // Test hook: a competing owner may try to advance the fence here, but
+      // BEGIN IMMEDIATE keeps authority validation and receipt disclosure atomic.
+      whileLocked?.()
+      const existing = this.db.prepare('SELECT mission_id, tool_call_id, submitted_attempt_id, submitted_fence, request_sha256, result FROM pdv_effects WHERE mission_id = ? AND tool_call_id = ?')
+        .get(input.missionId, input.callId) as EffectRow | undefined
+      if (existing === undefined) throw new Error('EFFECT_NOT_FOUND')
+      if (existing.submitted_fence > input.fence) throw new Error('FUTURE_RECEIPT')
+      if (existing.request_sha256 !== sha256(input.request)) throw new Error('IDEMPOTENCY_CONFLICT')
+      return { replayed: true, result: existing.result }
+    })
   }
 
   snapshot(): { authority: AuthorityRow[]; effects: EffectRow[] } {

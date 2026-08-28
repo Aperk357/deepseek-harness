@@ -114,12 +114,13 @@ async function resumeAfterReceipt(root: string, store: PdvEffectStore): Promise<
   events: SessionEvent[]
   logBytes: Buffer
   modelRequests: number
+  receiptResult: string
   toolInvocations: number
 }> {
-  store.reconcile({
+  const receipt = store.reconcile({
     missionId: EFFECT_MISSION_ID,
-    attemptId: 'pdv-attempt-2',
-    fence: 2,
+    attemptId: 'pdv-attempt-4',
+    fence: 4,
     callId: EFFECT_CALL_ID,
     request: EFFECT_REQUEST,
   })
@@ -157,6 +158,7 @@ async function resumeAfterReceipt(root: string, store: PdvEffectStore): Promise<
       events: [...inspection.events],
       logBytes: await readFile(location.path),
       modelRequests: adapter.requests,
+      receiptResult: receipt.result,
       toolInvocations,
     }
     await handle.dispose()
@@ -230,14 +232,40 @@ describe('PDV effect recovery across a hard crash', () => {
         callId: EFFECT_CALL_ID,
         request: EFFECT_REQUEST,
       })).toThrow('STALE_FENCE')
+      const competingStore = new PdvEffectStore(databasePath)
+      try {
+        expect(store.reconcile({
+          missionId: EFFECT_MISSION_ID,
+          attemptId: 'pdv-attempt-2',
+          fence: 2,
+          callId: EFFECT_CALL_ID,
+          request: EFFECT_REQUEST,
+        }, () => {
+          expect(() => { competingStore.claim(EFFECT_MISSION_ID, 'pdv-attempt-3', 3) })
+            .toThrow(/database is locked/)
+        }).result).toBe(initial.effects[0]?.result)
+        competingStore.claim(EFFECT_MISSION_ID, 'pdv-attempt-3', 3)
+        expect(() => store.reconcile({
+          missionId: EFFECT_MISSION_ID,
+          attemptId: 'pdv-attempt-2',
+          fence: 2,
+          callId: EFFECT_CALL_ID,
+          request: EFFECT_REQUEST,
+        })).toThrow('STALE_FENCE')
+      } finally {
+        competingStore.close()
+      }
+      store.claim(EFFECT_MISSION_ID, 'pdv-attempt-4', 4)
       const recovered = await resumeAfterReceipt(root, store)
       expect(recovered.modelRequests).toBe(0)
+      expect(recovered.receiptResult).toBe(initial.effects[0]?.result)
       expect(recovered.toolInvocations).toBe(0)
       const converged = store.snapshot()
       const convergedBytes = await readFile(databasePath)
       for (let cycle = 0; cycle < 10; cycle += 1) {
         const replay = await resumeAfterReceipt(root, store)
         expect(replay.modelRequests).toBe(0)
+        expect(replay.receiptResult).toBe(recovered.receiptResult)
         expect(replay.toolInvocations).toBe(0)
         expect(replay.events).toEqual(recovered.events)
         expect(replay.logBytes).toEqual(recovered.logBytes)
