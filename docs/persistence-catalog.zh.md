@@ -505,6 +505,37 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/api/session-controller/src/types.ts:39`](../packages/api/session-controller/src/types.ts)
 
+### `nightwatch/*`
+
+<a id="nightwatcheffect-reconciled--log-only"></a>
+
+#### `nightwatch/effect-reconciled` — log-only
+
+```ts persistence-catalog
+/** Records a caller-verified canonical receipt without making DSH its authority. */
+'nightwatch/effect-reconciled': {
+  workId: string
+  callId: string
+  requestSha256: string
+  resultSha256: string
+  attemptId: string
+  fence: number
+}
+```
+
+来源：[`packages/experimental/nightwatch-session/src/types.ts:31`](../packages/experimental/nightwatch-session/src/types.ts)
+
+<a id="nightwatchmission-bound--log-only"></a>
+
+#### `nightwatch/mission-bound` — log-only
+
+```ts persistence-catalog
+/** Binds one Nightwatch work item to this exact DSH session. */
+'nightwatch/mission-bound': { workId: string; sessionId: SessionId; effectTool: string }
+```
+
+来源：[`packages/experimental/nightwatch-session/src/types.ts:29`](../packages/experimental/nightwatch-session/src/types.ts)
+
 ### `permission/*`
 
 <a id="permissionpreset--log-only"></a>

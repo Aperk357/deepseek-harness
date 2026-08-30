@@ -9,6 +9,7 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import { createUserMessage, ToolCallId, type GenerateOptions, LlmAdapter, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import { bindNightwatchMission } from '@deepseek-ai/dsh-experimental-nightwatch-session'
 import * as checkpointPolicy from '../../src/index.ts'
 
 export const EFFECT_SESSION_ID = SessionId('pdv-effect-recovery')
@@ -212,6 +213,10 @@ async function main(): Promise<void> {
   const handle = await ctx.agents.create({
     sessionId: EFFECT_SESSION_ID,
     agentOptions: { provider: 'pdv-effect', model: 'synthetic-v1' },
+  })
+  await bindNightwatchMission(ctx, handle.agent.session, {
+    workId: EFFECT_MISSION_ID,
+    effectTool: 'pdv_effect',
   })
   handle.agent.followup(createUserMessage({
     content: [{ type: 'text', text: 'exercise the PDV effect boundary' }],

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-30-nightwatch-shared-harness-session-binding.md
+2026-08-30-nightwatch-shared-harness-session-binding.md: 2d0514eff255cf3909b6f1a4c87146fc3382a0a9
+2026-08-30-nightwatch-shared-harness-session-binding.zh.md: 2db561e8cea5daad6e91f373ce6f808679f8ead0

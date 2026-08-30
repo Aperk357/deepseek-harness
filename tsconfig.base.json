@@ -126,6 +126,7 @@
       "@deepseek-ai/dsh-experimental-webworker-runtime/invariant": ["./packages/experimental/webworker-runtime/src/invariant.ts"],
       "@deepseek-ai/dsh-experimental-webworker-packer/invariant": ["./packages/experimental/webworker-packer/src/invariant.ts"],
       "@deepseek-ai/dsh-experimental-inspector/invariant": ["./packages/experimental/inspector/src/invariant.ts"],
+      "@deepseek-ai/dsh-experimental-nightwatch-session/invariant": ["./packages/experimental/nightwatch-session/src/invariant.ts"],
       "@deepseek-ai/dsh-util-crypto/invariant": ["./packages/util/crypto/src/invariant.ts"],
       // host/client package names prefix the group dir (dsh-client-<dir>), so
       // the generated aliases below — which map a package only when its name is
@@ -230,6 +231,9 @@
       "@deepseek-ai/dsh-experimental-webworker-packer": ["./packages/experimental/webworker-packer/src"],
       "@deepseek-ai/dsh-experimental-inspector": ["./packages/experimental/inspector/src"],
       "@deepseek-ai/dsh-experimental-inspector/client": ["./packages/experimental/inspector/src/client/index.ts"],
+      "@deepseek-ai/dsh-experimental-nightwatch-session": ["./packages/experimental/nightwatch-session/src"],
+      "@deepseek-ai/dsh-experimental-nightwatch-session/client": ["./packages/experimental/nightwatch-session/src/client.ts"],
+      "@deepseek-ai/dsh-experimental-nightwatch-session/types": ["./packages/experimental/nightwatch-session/src/types.ts"],
       "@deepseek-ai/dsh-util-crypto": ["./packages/util/crypto/src"],
       // BEGIN generated package aliases — pnpm run gen-tsconfig-paths
       "@deepseek-ai/dsh-acp": ["./packages/acp/acp/src"],

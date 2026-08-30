@@ -10,6 +10,11 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import { type GenerateOptions, LlmAdapter, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { TOOL_OUTCOME_UNKNOWN, type SessionEvent } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import {
+  projectNightwatchHarness,
+  recordNightwatchReconciliation,
+  type NightwatchHarnessProjection,
+} from '@deepseek-ai/dsh-experimental-nightwatch-session'
 import * as checkpointPolicy from '../src/index.ts'
 import {
   EFFECT_ATTEMPT_ID,
@@ -114,6 +119,7 @@ async function resumeAfterReceipt(root: string, store: PdvEffectStore): Promise<
   events: SessionEvent[]
   logBytes: Buffer
   modelRequests: number
+  operatorStatus: NightwatchHarnessProjection | null
   receiptResult: string
   toolInvocations: number
 }> {
@@ -150,7 +156,16 @@ async function resumeAfterReceipt(root: string, store: PdvEffectStore): Promise<
       agentOptions: { provider: 'pdv-recovery', model: 'recovery-v2' },
     })
     await handle.agent.whenIdle()
+    await recordNightwatchReconciliation(ctx, handle.agent.session, {
+      workId: EFFECT_MISSION_ID,
+      callId: EFFECT_CALL_ID,
+      request: EFFECT_REQUEST,
+      result: receipt.result,
+      attemptId: 'pdv-attempt-4',
+      fence: 4,
+    })
     await ctx.sessions.flush(handle.agent.session)
+    await handle.dispose()
     const inspection = await ctx.sessionPersistence.inspect(EFFECT_SESSION_ID)
     const location = ctx.sessionPersistence.locate(inspection.meta)
     if (location?.kind !== 'jsonl') throw new Error('expected JSONL recovery location')
@@ -158,10 +173,10 @@ async function resumeAfterReceipt(root: string, store: PdvEffectStore): Promise<
       events: [...inspection.events],
       logBytes: await readFile(location.path),
       modelRequests: adapter.requests,
+      operatorStatus: projectNightwatchHarness(inspection.events),
       receiptResult: receipt.result,
       toolInvocations,
     }
-    await handle.dispose()
     return result
   } finally {
     await ctx.fiber.dispose()
@@ -265,8 +280,28 @@ describe('PDV effect recovery across a hard crash', () => {
       store.claim(EFFECT_MISSION_ID, 'pdv-attempt-4', 4)
       const recovered = await resumeAfterReceipt(root, store)
       expect(recovered.modelRequests).toBe(0)
+      expect(recovered.operatorStatus).toMatchObject({
+        workId: EFFECT_MISSION_ID,
+        sessionId: EFFECT_SESSION_ID,
+        phase: 'RECOVERED',
+        // Receipt reconciliation dispatches no model request, so the durable
+        // route remains the provider/model that produced the effect intent.
+        provider: 'pdv-effect',
+        model: 'synthetic-v1',
+        durableEffect: {
+          callId: EFFECT_CALL_ID,
+          outcome: 'SUCCEEDED',
+          receipt: { attemptId: 'pdv-attempt-4', fence: 4 },
+        },
+      })
       expect(recovered.receiptResult).toBe(initial.effects[0]?.result)
       expect(recovered.toolInvocations).toBe(0)
+      // The first reconciliation appends its receipt after this lifecycle's
+      // end-seed. One next resume seals that new durable seed; only then is the
+      // session at the terminal fixed point measured by the ten-cycle proof.
+      const settled = await resumeAfterReceipt(root, store)
+      expect(settled.operatorStatus).toMatchObject({ phase: 'RECOVERED' })
+      expect(settled.events.at(-1)?.type).toBe('session/end-seed')
       const converged = store.snapshot()
       const convergedBytes = await readFile(databasePath)
       for (let cycle = 0; cycle < 10; cycle += 1) {
@@ -274,8 +309,8 @@ describe('PDV effect recovery across a hard crash', () => {
         expect(replay.modelRequests).toBe(0)
         expect(replay.receiptResult).toBe(recovered.receiptResult)
         expect(replay.toolInvocations).toBe(0)
-        expect(replay.events).toEqual(recovered.events)
-        expect(replay.logBytes).toEqual(recovered.logBytes)
+        expect(replay.events).toEqual(settled.events)
+        expect(replay.logBytes).toEqual(settled.logBytes)
       }
       expect(store.snapshot()).toEqual(converged)
       expect(await readFile(databasePath)).toEqual(convergedBytes)
