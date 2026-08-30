@@ -11,6 +11,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import * as NightwatchSessionPlugin from '../src/index.ts'
+import { NightwatchWorkId } from '../src/brand.ts'
 
 let root: string | undefined
 let context: Context | undefined
@@ -64,15 +65,23 @@ describe('real Loader composition', () => {
 
     const session = loaded.sessions.create(SessionId('nightwatch-composed'))
     session.append('nightwatch/mission-bound', {
-      workId: 'nightwatch-work-1',
+      workId: NightwatchWorkId('nightwatch-work-1'),
       sessionId: session.id,
       effectTool: 'nightwatch_bounded_effect',
     })
     expect(loaded.sessionProjections.snapshot(session).values.nightwatchHarness)
-      .toMatchObject({ workId: 'nightwatch-work-1', phase: 'BOUND' })
+      .toMatchObject({ workId: 'nightwatch-work-1', effectPhase: 'IDLE' })
+
+    const entry = [...loaded.loader.entries()]
+      .find(candidate => candidate.options.name === '@deepseek-ai/dsh-experimental-nightwatch-session')
+    expect(entry?.fiber).toBeDefined()
+    await entry?.fiber?.dispose()
+    expect(loaded.sessionProjections.snapshot(session).values).not.toHaveProperty('nightwatchHarness')
   })
 
   it('keeps the function-plugin namespace free of a default export', () => {
     expect('default' in NightwatchSessionPlugin).toBe(false)
+    const loader = Object.create(Loader.prototype) as Loader
+    expect(loader.unwrapExports(NightwatchSessionPlugin)).toBe(NightwatchSessionPlugin)
   })
 })

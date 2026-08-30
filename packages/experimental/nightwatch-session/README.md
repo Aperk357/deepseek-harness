@@ -14,7 +14,9 @@ This private experimental package binds one Nightwatch work item and one named e
 ## Table of Contents
 
 - [Use this package](#use-this-package)
+- [Choose or avoid it](#choose-or-avoid-it)
 - [Understand the contract](#understand-the-contract)
+- [Further Exploration](#further-exploration)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
@@ -36,7 +38,14 @@ Before dispatching bounded work, call `bindNightwatchMission(ctx, session, { wor
 
 After crash recovery has repaired an entered tool call to `TOOL_OUTCOME_UNKNOWN`, the current canonical effect owner must validate its lease/fence and receipt. Pass that verified receipt to `recordNightwatchReconciliation`. The function checks the bound work, tool call identity, request digest, outcome-unknown repair, positive fence shape, and existing receipt. It records evidence; it does not grant authority.
 
-Read `ctx.sessionProjections.snapshot(session).values.nightwatchHarness` for a live view. For a durable operator status, call `projectNightwatchHarness(inspection.events)` with events returned by session persistence. That distinction matters: live session buffers may contain unflushed events.
+Read `ctx.sessionProjections.snapshot(session).values.nightwatchHarness` for a durability-neutral observation. For a durable operator status, call `projectNightwatchHarness(sessionId, inspection.events)` with the complete ordered events returned by session persistence. Only that helper adds `durability: 'PERSISTED'`; live and cold registry folds deliberately make no durability claim.
+
+<a id="choose-or-avoid-it"></a>
+## Choose or avoid it
+
+Choose this package when one bounded effect in one DSH session must reference a Nightwatch work identity and expose reconstructable recovery evidence. Avoid it for mission scheduling, gates, leases, arbitrary multi-effect workflows, or direct Nightwatch/Eyes-On transport.
+
+If this experimental package cannot be mounted, keep Nightwatch on its existing mission/result lifecycle and use the PR1 recovery proof directly. Do not create a substitute state store.
 
 -----
 
@@ -50,7 +59,18 @@ Read `ctx.sessionProjections.snapshot(session).values.nightwatchHarness` for a l
 | Lease/fence and external effect | Nightwatch or owning effect sink | Caller validates; package records the verified receipt |
 | Operator composition | Eyes-On | May consume sanitized projection read-only |
 
-The projection reports binding, last executed provider/model route, bounded-effect request digest, outcome, receipt metadata, and last observed persisted sequence. Receipt reconciliation dispatches no model request, so provider/model continue to identify the route that produced the effect intent.
+The projection reports binding, the provider/model route captured when the bounded effect was called, request digest, outcome, receipt metadata, and last observed sequence. Later provider/model headers do not rewrite the effect route. Receipt reconciliation dispatches no model request.
+
+-----
+
+<a id="further-exploration"></a>
+## Further Exploration
+
+- [Binding implementation](src/binding.ts)
+- [Strict projection fold](src/projection.ts)
+- [Package-owned invariant](src/invariant.ts)
+- [Hard-crash integration proof](../../session/session-checkpoint-policy/tests/pdv-effect-recovery.spec.ts)
+- [Ownership decision](../../../.agents/notes/implemented/architecture/2026-08-30-nightwatch-shared-harness-session-binding.md)
 
 -----
 
@@ -79,7 +99,7 @@ None; projection and reconciliation preserve existing request prefixes because t
 - **No Nightwatch transport** — it does not read or write mission files, result files, issue comments, gates, leases, or ledgers.
 - **No fence validation** — a positive integer is shape validation only; stale-writer rejection must occur atomically at the canonical effect owner before a receipt is passed here.
 - **No dispatch or refill loop** — scheduler, worker execution, terminal closeout, and refill remain outside this adapter.
-- **One bounded effect identity per binding** — `effectTool` selects the projected call class; broader multi-effect orchestration is deferred.
+- **One bounded effect intent per binding** — a second matching tool call is rejected; broader multi-effect orchestration is unsupported.
 - **Eyes-On integration is consumer work** — the projection is operator-ready, but this package does not modify or host Eyes-On.
 
 <a id="dev-note"></a>

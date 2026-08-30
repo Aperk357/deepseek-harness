@@ -7,8 +7,10 @@ import { MessageId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { bindNightwatchMission, recordNightwatchReconciliation } from '../src/binding.ts'
+import { NightwatchAttemptId, NightwatchWorkId } from '../src/brand.ts'
 
 const roots: string[] = []
+const WORK_ID = NightwatchWorkId('EYES_ON_NIGHTWATCH_SHARED_HARNESS_CONTINUATION_V1')
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
@@ -20,7 +22,7 @@ describe('bindNightwatchMission', () => {
     await ctx.plugin(SessionStore)
     try {
       const session = ctx.sessions.create(SessionId('nightwatch-unpersisted'))
-      const input = { workId: 'nightwatch-work', effectTool: 'nightwatch_bounded_effect' }
+      const input = { workId: NightwatchWorkId('nightwatch-work'), effectTool: 'nightwatch_bounded_effect' }
       await expect(bindNightwatchMission(ctx, session, input)).rejects.toThrow('requires session persistence')
       await expect(bindNightwatchMission(ctx, session, input)).rejects.toThrow('requires session persistence')
     } finally {
@@ -36,23 +38,29 @@ describe('bindNightwatchMission', () => {
     await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
     try {
       const session = ctx.sessions.create(SessionId('nightwatch-issue-131'))
-      await bindNightwatchMission(ctx, session, {
-        workId: 'EYES_ON_NIGHTWATCH_SHARED_HARNESS_CONTINUATION_V1',
-        effectTool: 'nightwatch_bounded_effect',
-      })
+      await Promise.all([
+        bindNightwatchMission(ctx, session, {
+          workId: WORK_ID,
+          effectTool: 'nightwatch_bounded_effect',
+        }),
+        bindNightwatchMission(ctx, session, {
+          workId: WORK_ID,
+          effectTool: 'nightwatch_bounded_effect',
+        }),
+      ])
       const location = ctx.sessionPersistence.locate((await ctx.sessionPersistence.inspect(session.id)).meta)
       if (location?.kind !== 'jsonl') throw new Error('expected JSONL persistence')
       const boundBytes = await readFile(location.path)
 
       await bindNightwatchMission(ctx, session, {
-        workId: 'EYES_ON_NIGHTWATCH_SHARED_HARNESS_CONTINUATION_V1',
+        workId: WORK_ID,
         effectTool: 'nightwatch_bounded_effect',
       })
       expect(await readFile(location.path)).toEqual(boundBytes)
       expect(session.events.filter(item => item.type === 'nightwatch/mission-bound')).toHaveLength(1)
 
       await expect(bindNightwatchMission(ctx, session, {
-        workId: 'DIFFERENT_WORK',
+        workId: NightwatchWorkId('DIFFERENT_WORK'),
         effectTool: 'nightwatch_bounded_effect',
       }))
         .rejects.toThrow('already bound')
@@ -71,7 +79,7 @@ describe('bindNightwatchMission', () => {
     try {
       const session = ctx.sessions.create(SessionId('nightwatch-issue-131'))
       await bindNightwatchMission(ctx, session, {
-        workId: 'EYES_ON_NIGHTWATCH_SHARED_HARNESS_CONTINUATION_V1',
+        workId: WORK_ID,
         effectTool: 'nightwatch_bounded_effect',
       })
       const callId = ToolCallId('nightwatch-effect-1')
@@ -102,14 +110,17 @@ describe('bindNightwatchMission', () => {
       await ctx.sessions.flush(session)
 
       const receipt = {
-        workId: 'EYES_ON_NIGHTWATCH_SHARED_HARNESS_CONTINUATION_V1',
+        workId: WORK_ID,
         callId,
         request,
         result: 'nightwatch-result-1',
-        attemptId: 'nightwatch-attempt-4',
+        attemptId: NightwatchAttemptId('nightwatch-attempt-4'),
         fence: 4,
       }
-      await recordNightwatchReconciliation(ctx, session, receipt)
+      await Promise.all([
+        recordNightwatchReconciliation(ctx, session, receipt),
+        recordNightwatchReconciliation(ctx, session, receipt),
+      ])
       const location = ctx.sessionPersistence.locate((await ctx.sessionPersistence.inspect(session.id)).meta)
       if (location?.kind !== 'jsonl') throw new Error('expected JSONL persistence')
       const convergedBytes = await readFile(location.path)
@@ -124,7 +135,9 @@ describe('bindNightwatchMission', () => {
         .rejects.toThrow('conflicts with the durable receipt')
       await expect(recordNightwatchReconciliation(ctx, session, { ...receipt, result: 'changed' }))
         .rejects.toThrow('conflicts with the durable receipt')
-      await expect(recordNightwatchReconciliation(ctx, session, { ...receipt, attemptId: 'changed' }))
+      await expect(recordNightwatchReconciliation(ctx, session, {
+        ...receipt, attemptId: NightwatchAttemptId('changed'),
+      }))
         .rejects.toThrow('conflicts with the durable receipt')
       expect(await readFile(location.path)).toEqual(convergedBytes)
     } finally {
@@ -139,7 +152,8 @@ describe('bindNightwatchMission', () => {
       const session = ctx.sessions.create(SessionId('nightwatch-invalid-receipt'))
       const callId = ToolCallId('nightwatch-effect-invalid')
       const base = {
-        workId: 'nightwatch-work', callId, request: '{}', result: 'result', attemptId: 'attempt-1', fence: 1,
+        workId: NightwatchWorkId('nightwatch-work'), callId, request: '{}', result: 'result',
+        attemptId: NightwatchAttemptId('attempt-1'), fence: 1,
       }
       await expect(recordNightwatchReconciliation(ctx, session, { ...base, fence: 0 }))
         .rejects.toThrow('positive safe integer')
@@ -147,10 +161,10 @@ describe('bindNightwatchMission', () => {
         .rejects.toThrow('positive safe integer')
       await expect(recordNightwatchReconciliation(ctx, session, base)).rejects.toThrow('is not bound')
 
-      session.append('nightwatch/mission-bound', {
+      expect(() => session.append('nightwatch/mission-bound', {
         workId: base.workId, sessionId: SessionId('different-session'), effectTool: 'nightwatch_bounded_effect',
-      })
-      await expect(recordNightwatchReconciliation(ctx, session, base)).rejects.toThrow('is not bound')
+      })).toThrow('does not match')
+      expect(session.events).toEqual([])
       const bound = ctx.sessions.create(SessionId('nightwatch-bound-validation'))
       bound.append('nightwatch/mission-bound', {
         workId: base.workId, sessionId: bound.id, effectTool: 'nightwatch_bounded_effect',
@@ -209,7 +223,8 @@ describe('bindNightwatchMission', () => {
       const session = ctx.sessions.create(SessionId('nightwatch-unpersisted-receipt'))
       const callId = ToolCallId('nightwatch-unpersisted-call')
       session.append('nightwatch/mission-bound', {
-        workId: 'nightwatch-work', sessionId: session.id, effectTool: 'nightwatch_bounded_effect',
+        workId: NightwatchWorkId('nightwatch-work'), sessionId: session.id,
+        effectTool: 'nightwatch_bounded_effect',
       })
       session.append('tool/call', {
         turn: 1, step: 1, callId, name: 'nightwatch_bounded_effect', arguments: '{}',
@@ -227,12 +242,32 @@ describe('bindNightwatchMission', () => {
         error: { name: 'ToolOutcomeUnknownError', code: 'TOOL_OUTCOME_UNKNOWN' },
       }, { surfaceOp: 'append' })
       const receipt = {
-        workId: 'nightwatch-work', callId, request: '{}', result: 'result', attemptId: 'attempt-1', fence: 1,
+        workId: NightwatchWorkId('nightwatch-work'), callId, request: '{}', result: 'result',
+        attemptId: NightwatchAttemptId('attempt-1'), fence: 1,
       }
       await expect(recordNightwatchReconciliation(ctx, session, receipt))
         .rejects.toThrow('requires session persistence')
       await expect(recordNightwatchReconciliation(ctx, session, receipt))
         .rejects.toThrow('requires session persistence')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('leaves post-append flush failures observable only in the live stream', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    let flushes = 0
+    ctx.on('session/flush', () => {
+      flushes += 1
+      if (flushes === 2) throw new Error('disk failed after publication')
+    })
+    try {
+      const session = ctx.sessions.create(SessionId('nightwatch-post-flush-failure'))
+      await expect(bindNightwatchMission(ctx, session, {
+        workId: NightwatchWorkId('work-post-flush'), effectTool: 'bounded',
+      })).rejects.toThrow('disk failed after publication')
+      expect(session.events.filter(event => event.type === 'nightwatch/mission-bound')).toHaveLength(1)
     } finally {
       await ctx.fiber.dispose()
     }

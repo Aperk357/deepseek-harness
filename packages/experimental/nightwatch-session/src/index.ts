@@ -4,6 +4,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { nightwatchHarnessProjectionDefinition } from './projection.ts'
 
 export { projectNightwatchHarness } from './projection.ts'
+export { NightwatchAttemptId, NightwatchWorkId } from './brand.ts'
+export type { NightwatchAttemptId as NightwatchAttemptIdType, NightwatchWorkId as NightwatchWorkIdType } from './brand.ts'
 
 export type * from './types.ts'
 export {
