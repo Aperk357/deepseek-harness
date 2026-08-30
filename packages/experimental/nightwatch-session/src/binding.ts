@@ -30,6 +30,10 @@ const bindingFor = (session: Session, input: BindNightwatchMissionInput) => {
     || existing.data.sessionId !== session.id || existing.data.effectTool !== input.effectTool)) {
     throw new Error(`DSH session "${session.id}" is already bound to Nightwatch work item "${existing.data.workId}"`)
   }
+  if (existing === undefined && session.events.some(event =>
+    event.type === 'tool/call' && event.data.name === input.effectTool)) {
+    throw new Error('Nightwatch binding must precede its bounded effect call')
+  }
   return existing
 }
 
@@ -82,6 +86,9 @@ export async function bindNightwatchMission(
   session: Session,
   input: BindNightwatchMissionInput,
 ): Promise<void> {
+  if (input.workId.length === 0 || input.effectTool.length === 0) {
+    throw new Error('Nightwatch binding requires non-empty work and effect identities')
+  }
   const before = bindingFor(session, input)
   if (!await ctx.sessions.flush(session)) throw new Error('Nightwatch binding requires session persistence')
   const after = bindingFor(session, input)
@@ -110,6 +117,9 @@ export async function recordNightwatchReconciliation(
   session: Session,
   input: RecordNightwatchReconciliationInput,
 ): Promise<void> {
+  if (input.workId.length === 0 || input.attemptId.length === 0) {
+    throw new Error('Nightwatch receipt requires non-empty work and attempt identities')
+  }
   if (!Number.isSafeInteger(input.fence) || input.fence < 1) {
     throw new Error('Nightwatch receipt fence must be a positive safe integer')
   }
@@ -124,7 +134,6 @@ export async function recordNightwatchReconciliation(
   }
   if (!await ctx.sessions.flush(session)) throw new Error('Nightwatch receipt requires session persistence')
   state = receiptFor(session, input)
-  /* v8 ignore start -- only a concurrent writer can publish during the awaited preflight. */
   if (state.existing !== undefined) {
     if (!receiptMatches(state.existing, input, state.requestSha256, state.resultSha256)) {
       throw new Error('Nightwatch reconciliation conflicts with the durable receipt')
@@ -132,7 +141,6 @@ export async function recordNightwatchReconciliation(
     if (!await ctx.sessions.flush(session)) throw new Error('Nightwatch receipt requires session persistence')
     return
   }
-  /* v8 ignore stop */
   session.append('nightwatch/effect-reconciled', {
     workId: input.workId,
     callId: input.callId,

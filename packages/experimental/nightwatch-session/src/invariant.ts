@@ -14,7 +14,7 @@ export const inject = ['invariants']
 
 /** Reject invalid Nightwatch event relationships before publication. */
 const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
-  for (const session of ctx.sessions.list()) {
+  const validateSession = (session: Session): void => {
     try {
       const state = session.events.reduce(
         (current, event) => applyNightwatchHarnessEvent(current, event),
@@ -30,10 +30,16 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
       fail(`cannot reconstruct session "${session.id}": ${message}`)
     }
   }
+  for (const session of ctx.sessions.list()) validateSession(session)
+  ctx.on('session/created', (session) => { validateSession(session) }, { global: true })
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
     const [session, event] = args as [Session, SessionEvent]
-    if (event.type !== 'nightwatch/mission-bound' && event.type !== 'nightwatch/effect-reconciled') return
+    if (event.type !== 'nightwatch/mission-bound'
+      && event.type !== 'nightwatch/effect-reconciled'
+      && event.type !== 'request/header'
+      && event.type !== 'tool/call'
+      && event.type !== 'tool/result') return
     try {
       const state = session.events.reduce(
         (current, committed) => applyNightwatchHarnessEvent(current, committed),

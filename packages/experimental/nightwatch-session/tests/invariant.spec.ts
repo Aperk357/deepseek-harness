@@ -1,7 +1,8 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import InvariantService, { InvariantError } from '@deepseek-ai/dsh-invariants'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { NightwatchWorkId } from '../src/brand.ts'
 import * as NightwatchInvariant from '../src/invariant.ts'
 
@@ -30,6 +31,55 @@ describe('Nightwatch stream invariant', () => {
         workId: NightwatchWorkId('work-1'), sessionId: session.id, effectTool: 'bounded',
       })).toThrow('already has a mission binding')
       expect(session.events).toHaveLength(1)
+
+      const unrelated = ctx.sessions.create(SessionId('unrelated-event'))
+      unrelated.append('turn/start', { turn: 1 })
+      expect(unrelated.events).toHaveLength(1)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('rejects pre-binding and second bounded calls before publication', async () => {
+    const ctx = await setup()
+    try {
+      const session = ctx.sessions.create(SessionId('bounded-call-order'))
+      session.append('tool/call', {
+        turn: 1, step: 1, callId: ToolCallId('prior'), name: 'bounded', arguments: '{}',
+      })
+      const committedPriorCall = [...session.events]
+      expect(() => session.append('nightwatch/mission-bound', {
+        workId: NightwatchWorkId('work-1'), sessionId: session.id, effectTool: 'bounded',
+      })).toThrow('must precede')
+      expect(session.events).toEqual(committedPriorCall)
+
+      const bound = ctx.sessions.create(SessionId('second-bounded-call'))
+      bound.append('nightwatch/mission-bound', {
+        workId: NightwatchWorkId('work-2'), sessionId: bound.id, effectTool: 'bounded',
+      })
+      bound.append('tool/call', {
+        turn: 1, step: 1, callId: ToolCallId('first'), name: 'bounded', arguments: '{}',
+      })
+      const committed = [...bound.events]
+      expect(() => bound.append('tool/call', {
+        turn: 1, step: 2, callId: ToolCallId('second'), name: 'bounded', arguments: '{}',
+      })).toThrow('already has a bounded effect call')
+      expect(bound.events).toEqual(committed)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('rejects a corrupt restored seed during session creation', async () => {
+    const ctx = await setup()
+    try {
+      const sessionId = SessionId('corrupt-restored-seed')
+      const seed = [{
+        type: 'nightwatch/mission-bound', seq: 0, time: 1_000,
+        data: { workId: NightwatchWorkId('work-1'), sessionId: SessionId('wrong'), effectTool: 'bounded' },
+      }] as SessionEvent[]
+      expect(() => ctx.sessions.create(sessionId, { seed })).toThrow('cannot reconstruct')
+      expect(ctx.sessions.get(sessionId)).toBeUndefined()
     } finally {
       await ctx.fiber.dispose()
     }

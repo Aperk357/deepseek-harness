@@ -37,13 +37,19 @@ export interface PersistedNightwatchHarnessProjection extends NightwatchHarnessO
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
-    /** Binds one Nightwatch work item to this exact DSH session. */
+    /**
+     * Binds one Nightwatch work item to this exact DSH session.
+     * @param data - work identity, session identity, and bounded effect tool name.
+     */
     'nightwatch/mission-bound': {
       workId: NightwatchWorkId
       sessionId: SessionId
       effectTool: string
     }
-    /** Records a caller-verified canonical receipt without making DSH its authority. */
+    /**
+     * Records a caller-verified canonical receipt without making DSH its authority.
+     * @param data - work and call identities, request/result digests, attempt, and fence.
+     */
     'nightwatch/effect-reconciled': {
       workId: NightwatchWorkId
       callId: ToolCallId

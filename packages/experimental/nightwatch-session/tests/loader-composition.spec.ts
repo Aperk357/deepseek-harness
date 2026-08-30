@@ -1,4 +1,4 @@
-/** REAL-composition proof for the experimental Nightwatch session projection. */
+/** Loader lifecycle proof for the experimental Nightwatch session projection. */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -51,7 +51,7 @@ async function loadYaml(lines: readonly string[]): Promise<Context> {
   return context
 }
 
-describe('real Loader composition', () => {
+describe('Loader lifecycle composition', () => {
   it('loads the shared-harness YAML shape and serves a bound operator view', async () => {
     const loaded = await loadYaml([
       "- name: '@deepseek-ai/dsh-session'",

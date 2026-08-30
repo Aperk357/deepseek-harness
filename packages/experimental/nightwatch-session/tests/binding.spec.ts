@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -65,6 +66,21 @@ describe('bindNightwatchMission', () => {
       }))
         .rejects.toThrow('already bound')
       expect(await readFile(location.path)).toEqual(boundBytes)
+
+      const late = ctx.sessions.create(SessionId('nightwatch-late-binding'))
+      late.append('tool/call', {
+        turn: 1, step: 1, callId: ToolCallId('already-entered'),
+        name: 'nightwatch_bounded_effect', arguments: '{}',
+      })
+      await ctx.sessions.flush(late)
+      const lateLocation = ctx.sessionPersistence.locate((await ctx.sessionPersistence.inspect(late.id)).meta)
+      if (lateLocation?.kind !== 'jsonl') throw new Error('expected JSONL persistence')
+      const lateBytes = await readFile(lateLocation.path)
+      await expect(bindNightwatchMission(ctx, late, {
+        workId: WORK_ID, effectTool: 'nightwatch_bounded_effect',
+      })).rejects.toThrow('must precede')
+      expect(await readFile(lateLocation.path)).toEqual(lateBytes)
+      expect(late.events.some(event => event.type === 'nightwatch/mission-bound')).toBe(false)
     } finally {
       await ctx.fiber.dispose()
     }
@@ -155,6 +171,15 @@ describe('bindNightwatchMission', () => {
         workId: NightwatchWorkId('nightwatch-work'), callId, request: '{}', result: 'result',
         attemptId: NightwatchAttemptId('attempt-1'), fence: 1,
       }
+      await expect(bindNightwatchMission(ctx, session, {
+        workId: NightwatchWorkId(''), effectTool: 'bounded',
+      })).rejects.toThrow('non-empty work and effect identities')
+      await expect(bindNightwatchMission(ctx, session, {
+        workId: base.workId, effectTool: '',
+      })).rejects.toThrow('non-empty work and effect identities')
+      await expect(recordNightwatchReconciliation(ctx, session, {
+        ...base, attemptId: NightwatchAttemptId(''),
+      })).rejects.toThrow('non-empty work and attempt identities')
       await expect(recordNightwatchReconciliation(ctx, session, { ...base, fence: 0 }))
         .rejects.toThrow('positive safe integer')
       await expect(recordNightwatchReconciliation(ctx, session, { ...base, fence: Number.MAX_SAFE_INTEGER + 1 }))
@@ -198,7 +223,7 @@ describe('bindNightwatchMission', () => {
         },
         error: { name: 'ToolOutcomeUnknownError', code: 'TOOL_OUTCOME_UNKNOWN' },
       }, { surfaceOp: 'append' })
-      matching.append('tool/result', {
+      expect(() => matching.append('tool/result', {
         turn: 1,
         step: 1,
         message: {
@@ -208,9 +233,97 @@ describe('bindNightwatchMission', () => {
             content: [{ type: 'text', text: 'done' }],
           }],
         },
+      }, { surfaceOp: 'append' })).toThrow('already has a terminal outcome')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it.each([
+    ['matching', 4, undefined],
+    ['conflicting', 5, 'conflicts with the durable receipt'],
+  ] as const)('handles a %s receipt published during persistence preflight', async (_name, writerFence, error) => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-nightwatch-concurrent-receipt-'))
+    roots.push(root)
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
+    try {
+      const session = ctx.sessions.create(SessionId(`nightwatch-concurrent-${writerFence}`))
+      await bindNightwatchMission(ctx, session, { workId: WORK_ID, effectTool: 'bounded' })
+      const callId = ToolCallId('concurrent-call')
+      const request = '{}'
+      session.append('tool/call', { turn: 1, step: 1, callId, name: 'bounded', arguments: request })
+      session.append('tool/result', {
+        turn: 1, step: 1,
+        message: {
+          id: MessageId('concurrent-unknown'), role: 'user', source: { kind: 'tool', callId },
+          content: [{
+            type: 'tool-result', toolCallId: callId, isError: true,
+            content: [{ type: 'text', text: 'unknown' }],
+          }],
+        },
+        error: { name: 'ToolOutcomeUnknownError', code: 'TOOL_OUTCOME_UNKNOWN' },
       }, { surfaceOp: 'append' })
-      await expect(recordNightwatchReconciliation(ctx, matching, base))
-        .rejects.toThrow('prior TOOL_OUTCOME_UNKNOWN')
+      await ctx.sessions.flush(session)
+      let publish = true
+      ctx.on('session/flush', (flushed) => {
+        if (!publish || flushed !== session) return
+        publish = false
+        flushed.append('nightwatch/effect-reconciled', {
+          workId: WORK_ID, callId,
+          requestSha256: createHash('sha256').update(request).digest('hex'),
+          resultSha256: createHash('sha256').update('result').digest('hex'),
+          attemptId: NightwatchAttemptId('attempt-4'), fence: writerFence,
+        })
+      })
+      const operation = recordNightwatchReconciliation(ctx, session, {
+        workId: WORK_ID, callId, request, result: 'result',
+        attemptId: NightwatchAttemptId('attempt-4'), fence: 4,
+      })
+      if (error === undefined) await expect(operation).resolves.toBeUndefined()
+      else await expect(operation).rejects.toThrow(error)
+      expect(session.events.filter(event => event.type === 'nightwatch/effect-reconciled')).toHaveLength(1)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('fails if the persistence participant disappears after a concurrent exact receipt', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    try {
+      const session = ctx.sessions.create(SessionId('nightwatch-concurrent-disposal'))
+      const workId = NightwatchWorkId('concurrent-disposal-work')
+      const callId = ToolCallId('concurrent-disposal-call')
+      session.append('nightwatch/mission-bound', { workId, sessionId: session.id, effectTool: 'bounded' })
+      session.append('tool/call', { turn: 1, step: 1, callId, name: 'bounded', arguments: '{}' })
+      session.append('tool/result', {
+        turn: 1, step: 1,
+        message: {
+          id: MessageId('concurrent-disposal-unknown'), role: 'user', source: { kind: 'tool', callId },
+          content: [{
+            type: 'tool-result', toolCallId: callId, isError: true,
+            content: [{ type: 'text', text: 'unknown' }],
+          }],
+        },
+        error: { name: 'ToolOutcomeUnknownError', code: 'TOOL_OUTCOME_UNKNOWN' },
+      }, { surfaceOp: 'append' })
+      let dispose = (): void => {}
+      dispose = ctx.on('session/flush', (flushed) => {
+        flushed.append('nightwatch/effect-reconciled', {
+          workId, callId,
+          requestSha256: createHash('sha256').update('{}').digest('hex'),
+          resultSha256: createHash('sha256').update('result').digest('hex'),
+          attemptId: NightwatchAttemptId('attempt-1'), fence: 1,
+        })
+        dispose()
+      })
+      await expect(recordNightwatchReconciliation(ctx, session, {
+        workId, callId, request: '{}', result: 'result',
+        attemptId: NightwatchAttemptId('attempt-1'), fence: 1,
+      })).rejects.toThrow('requires session persistence')
+      expect(session.events.filter(event => event.type === 'nightwatch/effect-reconciled')).toHaveLength(1)
     } finally {
       await ctx.fiber.dispose()
     }

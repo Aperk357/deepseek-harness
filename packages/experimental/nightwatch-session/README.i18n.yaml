@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/nightwatch-session/README.md
-README.md: aa367e62dcce9d495c264067501077de19e1b456
-README.zh.md: be563cb49353ba10dbd3056cbe5ad40202777de0
+README.md: 238d2a9362b9cb08030c1af38e87c40479d35d63
+README.zh.md: dd7d5dffeffcf8ad23430b4d129564a6615a9066

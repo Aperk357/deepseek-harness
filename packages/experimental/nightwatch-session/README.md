@@ -34,11 +34,11 @@ Mount the session store, projection registry, then this plugin:
 - name: '@deepseek-ai/dsh-experimental-nightwatch-session'
 ```
 
-Before dispatching bounded work, call `bindNightwatchMission(ctx, session, { workId, effectTool })`. The function appends `nightwatch/mission-bound` once and requires a participating session persistence listener. Exact repeats flush again but add no event or bytes; identity drift rejects.
+Before dispatching bounded work, call `bindNightwatchMission(ctx, session, { workId, effectTool })`. The function appends `nightwatch/mission-bound` once and requires a participating session persistence listener. Exact repeats flush again but add no event or bytes; identity drift and an earlier matching tool call reject.
 
 After crash recovery has repaired an entered tool call to `TOOL_OUTCOME_UNKNOWN`, the current canonical effect owner must validate its lease/fence and receipt. Pass that verified receipt to `recordNightwatchReconciliation`. The function checks the bound work, tool call identity, request digest, outcome-unknown repair, positive fence shape, and existing receipt. It records evidence; it does not grant authority.
 
-Read `ctx.sessionProjections.snapshot(session).values.nightwatchHarness` for a durability-neutral observation. For a durable operator status, call `projectNightwatchHarness(sessionId, inspection.events)` with the complete ordered events returned by session persistence. Only that helper adds `durability: 'PERSISTED'`; live and cold registry folds deliberately make no durability claim.
+Read `ctx.sessionProjections.snapshot(session).values.nightwatchHarness` for a durability-neutral observation. For a durable operator status, call `projectNightwatchHarness(inspection)` with the `SessionInspection` returned by session persistence. The helper verifies metadata identity and a contiguous event sequence before adding `durability: 'PERSISTED'`; live and cold registry folds deliberately make no durability claim.
 
 <a id="choose-or-avoid-it"></a>
 ## Choose or avoid it
@@ -101,6 +101,7 @@ None; projection and reconciliation preserve existing request prefixes because t
 - **No dispatch or refill loop** — scheduler, worker execution, terminal closeout, and refill remain outside this adapter.
 - **One bounded effect intent per binding** — a second matching tool call is rejected; broader multi-effect orchestration is unsupported.
 - **Eyes-On integration is consumer work** — the projection is operator-ready, but this package does not modify or host Eyes-On.
+- **No supported app/process composition** — Loader lifecycle coverage uses a source module map; supported-profile JSONL/operator proof remains consumer integration work.
 
 <a id="dev-note"></a>
 ### Dev Note

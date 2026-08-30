@@ -34,11 +34,11 @@ kind: "package-reference"
 - name: '@deepseek-ai/dsh-experimental-nightwatch-session'
 ```
 
-派发有界工作前，调用 `bindNightwatchMission(ctx, session, { workId, effectTool })`。该函数只追加一次 `nightwatch/mission-bound`，并要求有 session persistence listener 参与。完全相同的重复调用会再次 flush，但不增加事件或字节；身份漂移会被拒绝。
+派发有界工作前，调用 `bindNightwatchMission(ctx, session, { workId, effectTool })`。该函数只追加一次 `nightwatch/mission-bound`，并要求有 session persistence listener 参与。完全相同的重复调用会再次 flush，但不增加事件或字节；身份漂移与更早出现的匹配工具调用都会被拒绝。
 
 崩溃恢复把已进入的工具调用修复成 `TOOL_OUTCOME_UNKNOWN` 后，当前 canonical effect owner 必须验证自己的 lease/fence 与 receipt。把已验证的 receipt 传给 `recordNightwatchReconciliation`。该函数检查绑定工作、工具调用身份、请求摘要、outcome-unknown 修复、正 fence 形状和已有 receipt。它记录证据，不授予权威。
 
-从 `ctx.sessionProjections.snapshot(session).values.nightwatchHarness` 读取不声明持久性的 observation。要取得持久操作员状态，请把 session persistence 返回的完整有序事件传给 `projectNightwatchHarness(sessionId, inspection.events)`。只有该 helper 添加 `durability: 'PERSISTED'`；实时与 cold registry fold 都不会声称持久性。
+从 `ctx.sessionProjections.snapshot(session).values.nightwatchHarness` 读取不声明持久性的 observation。要取得持久操作员状态，请把 session persistence 返回的 `SessionInspection` 传给 `projectNightwatchHarness(inspection)`。该 helper 在添加 `durability: 'PERSISTED'` 前验证元数据身份与连续事件序号；实时与 cold registry fold 都不会声称持久性。
 
 <a id="choose-or-avoid-it"></a>
 ## 何时选择或避免
@@ -101,6 +101,7 @@ kind: "package-reference"
 - **无 dispatch 或 refill loop**——scheduler、worker execution、terminal closeout 与 refill 仍在此 adapter 外部。
 - **每个绑定只有一个有界 effect intent**——第二个匹配工具调用会被拒绝；不支持更广的多 effect 编排。
 - **Eyes-On 集成属于消费方工作**——投影已可供操作员使用，但本包不修改或托管 Eyes-On。
+- **无受支持 app/process 组合**——Loader 生命周期覆盖使用 source module map；受支持 profile 的 JSONL/操作员证明仍属于消费方集成工作。
 
 <a id="dev-note"></a>
 ### 开发备注
