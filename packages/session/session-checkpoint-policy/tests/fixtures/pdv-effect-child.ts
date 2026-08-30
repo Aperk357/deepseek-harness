@@ -9,13 +9,13 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import { createUserMessage, ToolCallId, type GenerateOptions, LlmAdapter, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { bindNightwatchMission } from '@deepseek-ai/dsh-experimental-nightwatch-session'
+import { bindNightwatchMission, NightwatchAttemptId, NightwatchWorkId } from '@deepseek-ai/dsh-experimental-nightwatch-session'
 import * as checkpointPolicy from '../../src/index.ts'
 
 export const EFFECT_SESSION_ID = SessionId('pdv-effect-recovery')
 export const EFFECT_CALL_ID = ToolCallId('pdv-effect-call')
-export const EFFECT_MISSION_ID = 'pdv-mission-1'
-export const EFFECT_ATTEMPT_ID = 'pdv-attempt-1'
+export const EFFECT_MISSION_ID = NightwatchWorkId('pdv-mission-1')
+export const EFFECT_ATTEMPT_ID = NightwatchAttemptId('pdv-attempt-1')
 export const EFFECT_FENCE = 1
 export const EFFECT_REQUEST = '{"operation":"synthetic-pdv-effect","value":1}'
 

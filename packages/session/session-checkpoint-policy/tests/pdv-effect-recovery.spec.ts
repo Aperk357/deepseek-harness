@@ -13,7 +13,8 @@ import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import {
   projectNightwatchHarness,
   recordNightwatchReconciliation,
-  type NightwatchHarnessProjection,
+  NightwatchAttemptId,
+  type PersistedNightwatchHarnessProjection,
 } from '@deepseek-ai/dsh-experimental-nightwatch-session'
 import * as checkpointPolicy from '../src/index.ts'
 import {
@@ -119,7 +120,7 @@ async function resumeAfterReceipt(root: string, store: PdvEffectStore): Promise<
   events: SessionEvent[]
   logBytes: Buffer
   modelRequests: number
-  operatorStatus: NightwatchHarnessProjection | null
+  operatorStatus: PersistedNightwatchHarnessProjection | null
   receiptResult: string
   toolInvocations: number
 }> {
@@ -161,7 +162,7 @@ async function resumeAfterReceipt(root: string, store: PdvEffectStore): Promise<
       callId: EFFECT_CALL_ID,
       request: EFFECT_REQUEST,
       result: receipt.result,
-      attemptId: 'pdv-attempt-4',
+      attemptId: NightwatchAttemptId('pdv-attempt-4'),
       fence: 4,
     })
     await ctx.sessions.flush(handle.agent.session)
@@ -173,7 +174,7 @@ async function resumeAfterReceipt(root: string, store: PdvEffectStore): Promise<
       events: [...inspection.events],
       logBytes: await readFile(location.path),
       modelRequests: adapter.requests,
-      operatorStatus: projectNightwatchHarness(inspection.events),
+      operatorStatus: projectNightwatchHarness(EFFECT_SESSION_ID, inspection.events),
       receiptResult: receipt.result,
       toolInvocations,
     }
@@ -283,13 +284,14 @@ describe('PDV effect recovery across a hard crash', () => {
       expect(recovered.operatorStatus).toMatchObject({
         workId: EFFECT_MISSION_ID,
         sessionId: EFFECT_SESSION_ID,
-        phase: 'RECOVERED',
+        durability: 'PERSISTED',
+        effectPhase: 'RECOVERED',
         // Receipt reconciliation dispatches no model request, so the durable
         // route remains the provider/model that produced the effect intent.
-        provider: 'pdv-effect',
-        model: 'synthetic-v1',
-        durableEffect: {
+        effect: {
           callId: EFFECT_CALL_ID,
+          provider: 'pdv-effect',
+          model: 'synthetic-v1',
           outcome: 'SUCCEEDED',
           receipt: { attemptId: 'pdv-attempt-4', fence: 4 },
         },
@@ -300,7 +302,7 @@ describe('PDV effect recovery across a hard crash', () => {
       // end-seed. One next resume seals that new durable seed; only then is the
       // session at the terminal fixed point measured by the ten-cycle proof.
       const settled = await resumeAfterReceipt(root, store)
-      expect(settled.operatorStatus).toMatchObject({ phase: 'RECOVERED' })
+      expect(settled.operatorStatus).toMatchObject({ durability: 'PERSISTED', effectPhase: 'RECOVERED' })
       expect(settled.events.at(-1)?.type).toBe('session/end-seed')
       const converged = store.snapshot()
       const convergedBytes = await readFile(databasePath)

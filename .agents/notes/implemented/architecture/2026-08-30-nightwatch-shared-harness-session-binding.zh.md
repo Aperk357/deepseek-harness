@@ -10,7 +10,7 @@ Eyes-On 需要在 Nightwatch 监督的 worker 崩溃后保持操作员连续性�
 
 ## 决定
 
-增加一个私有实验 DSH 包：每个 session 追加一个已 flush 的 `nightwatch/mission-bound` 事件，并在 `TOOL_OUTCOME_UNKNOWN` 后追加一个由调用方验证的 `nightwatch/effect-reconciled` receipt。纯 `nightwatchHarness` 投影把持久事件折叠成操作员安全状态。`effectTool` 属于不可变绑定，因此 adapter 只观察配置的有界 effect，不宣称拥有全部工具。
+私有实验 DSH 包为每个 session 追加一个已 flush 的 `nightwatch/mission-bound` 事件，并在 `TOOL_OUTCOME_UNKNOWN` 后追加一个由调用方验证的 `nightwatch/effect-reconciled` receipt。严格 fold 验证本包拥有的关系。注册的 `nightwatchHarness` observation 不声明持久性；只有 persisted-read helper 把完整 persistence snapshot 标为 `PERSISTED`。`effectTool` 属于不可变绑定，因此 adapter 只观察一个配置的有界 effect，不宣称拥有全部工具。
 
 DSH 只拥有自己的 transcript、checkpoint 边界与派生投影。Nightwatch 继续拥有 mission lifecycle、audit、gate、evidence 与 AAR。实际 effect owner 继续拥有原子幂等与 stale-fence 拒绝权威。Eyes-On 继续作为只读控制平面组合方。
 
@@ -18,9 +18,9 @@ DSH 只拥有自己的 transcript、checkpoint 边界与派生投影。Nightwatc
 
 ## 影响
 
-消费方可以从持久 DSH 事件重建绑定工作项最后实际执行的模型路由、effect intent 摘要、崩溃歧义状态与已验证 receipt。相同绑定与 receipt 调用收敛且不写入；缺少 persistence、身份漂移、请求漂移和冲突 receipt 都会 fail closed。
+消费方可以从持久 DSH 事件重建绑定工作项在 effect 调用时的模型路由、effect intent 摘要、崩溃歧义状态与已验证 receipt。不透明 Nightwatch 标识防止跨边界误替换。本包 invariant 在发布前拒绝格式错误的关系。相同绑定与 receipt 调用收敛且不增加 Nightwatch 事件；缺少 persistence、身份漂移、请求漂移和冲突 receipt 都会 fail closed。
 
-此切片不连接 Nightwatch 文件或 Eyes-On HTTP route。下一步集成必须使用 Nightwatch 现有 result-ingestion 接缝与 Eyes-On 现有 worker-status adapter；不得引入并行状态存储。
+Nightwatch 文件与 Eyes-On HTTP route 不属于此已实现切片。现有 Nightwatch result ingestion 与 Eyes-On worker-status composition 仍是兼容集成接缝；此处不存在并行状态存储。
 
 ## 曾考虑的替代方案
 

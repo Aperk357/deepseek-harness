@@ -10,7 +10,7 @@ Eyes-On needs operator continuity across Nightwatch-supervised worker crashes. D
 
 ## Decision
 
-Add a private experimental DSH package that appends one flushed `nightwatch/mission-bound` event per session and one caller-verified `nightwatch/effect-reconciled` receipt after `TOOL_OUTCOME_UNKNOWN`. The pure `nightwatchHarness` projection folds persisted events into an operator-safe status. `effectTool` is part of the immutable binding, so the adapter observes a configured bounded effect rather than claiming all tools.
+The private experimental DSH package appends one flushed `nightwatch/mission-bound` event per session and one caller-verified `nightwatch/effect-reconciled` receipt after `TOOL_OUTCOME_UNKNOWN`. Its strict fold validates package-owned relationships. The registered `nightwatchHarness` observation is durability-neutral; the persisted-read helper alone labels a complete persistence snapshot `PERSISTED`. `effectTool` is part of the immutable binding, so the adapter observes one configured bounded effect rather than claiming all tools.
 
 DSH owns only its transcript, checkpoint boundary, and derived projection. Nightwatch remains authoritative for mission lifecycle, audit, gates, evidence, and AAR. The actual effect owner remains authoritative for atomic idempotency and stale-fence rejection. Eyes-On remains a read-only control-plane composer.
 
@@ -18,9 +18,9 @@ The PR1 hard-crash proof is extended rather than duplicated: it binds the synthe
 
 ## Consequences
 
-Consumers can reconstruct a bound work item's last executed model route, effect intent digest, crash-ambiguous state, and verified receipt from persisted DSH events. Identical binding and receipt calls converge without writes, while missing persistence, identity drift, request drift, and conflicting receipts fail closed.
+Consumers can reconstruct a bound work item's effect-time model route, effect intent digest, crash-ambiguous state, and verified receipt from persisted DSH events. Opaque Nightwatch identifiers prevent accidental cross-boundary substitution. The package invariant rejects malformed relations before publication. Identical binding and receipt calls converge without Nightwatch events, while missing persistence, identity drift, request drift, and conflicting receipts fail closed.
 
-This slice does not connect Nightwatch files or Eyes-On HTTP routes. The next integration must use Nightwatch's existing result-ingestion seam and Eyes-On's existing worker-status adapter; it must not introduce a parallel state store.
+Nightwatch files and Eyes-On HTTP routes remain outside this implemented slice. Existing Nightwatch result ingestion and Eyes-On worker-status composition remain the compatible integration seams; no parallel state store exists here.
 
 ## Alternatives considered
 

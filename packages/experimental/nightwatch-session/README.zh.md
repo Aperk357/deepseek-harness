@@ -14,7 +14,9 @@ kind: "package-reference"
 ## 目录
 
 - [使用本包](#use-this-package)
+- [何时选择或避免](#choose-or-avoid-it)
 - [理解契约](#understand-the-contract)
+- [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
@@ -36,7 +38,14 @@ kind: "package-reference"
 
 崩溃恢复把已进入的工具调用修复成 `TOOL_OUTCOME_UNKNOWN` 后，当前 canonical effect owner 必须验证自己的 lease/fence 与 receipt。把已验证的 receipt 传给 `recordNightwatchReconciliation`。该函数检查绑定工作、工具调用身份、请求摘要、outcome-unknown 修复、正 fence 形状和已有 receipt。它记录证据，不授予权威。
 
-从 `ctx.sessionProjections.snapshot(session).values.nightwatchHarness` 读取实时视图。要取得持久操作员状态，请把 session persistence 返回的事件传给 `projectNightwatchHarness(inspection.events)`。两者必须区分：实时 session buffer 可能含未 flush 的事件。
+从 `ctx.sessionProjections.snapshot(session).values.nightwatchHarness` 读取不声明持久性的 observation。要取得持久操作员状态，请把 session persistence 返回的完整有序事件传给 `projectNightwatchHarness(sessionId, inspection.events)`。只有该 helper 添加 `durability: 'PERSISTED'`；实时与 cold registry fold 都不会声称持久性。
+
+<a id="choose-or-avoid-it"></a>
+## 何时选择或避免
+
+当一个 DSH session 中的一个有界 effect 必须引用 Nightwatch 工作身份并暴露可重建的恢复证据时，选择本包。不要把它用于 mission scheduling、gate、lease、任意多 effect workflow 或直接 Nightwatch/Eyes-On transport。
+
+若无法挂载这个实验包，继续使用 Nightwatch 现有 mission/result 生命周期，并直接复用 PR1 恢复证明。不要创建替代 state store。
 
 -----
 
@@ -50,7 +59,18 @@ kind: "package-reference"
 | Lease/fence 与外部 effect | Nightwatch 或 effect sink 所有者 | 调用方验证；本包记录已验证 receipt |
 | 操作员组合 | Eyes-On | 可以只读消费净化投影 |
 
-投影报告绑定、最后实际执行的 provider/model 路由、有界 effect 请求摘要、结果、receipt 元数据，以及最后观察到的持久序号。Receipt reconciliation 不派发模型请求，因此 provider/model 继续标识产生 effect intent 的路由。
+投影报告绑定、effect 调用时捕获的 provider/model 路由、请求摘要、结果、receipt 元数据，以及最后观察到的序号。之后的 provider/model header 不会改写 effect 路由。Receipt reconciliation 不派发模型请求。
+
+-----
+
+<a id="further-exploration"></a>
+## 进一步探索
+
+- [绑定实现](src/binding.ts)
+- [严格投影 fold](src/projection.ts)
+- [本包 invariant](src/invariant.ts)
+- [硬崩溃集成证明](../../session/session-checkpoint-policy/tests/pdv-effect-recovery.spec.ts)
+- [所有权决策](../../../.agents/notes/implemented/architecture/2026-08-30-nightwatch-shared-harness-session-binding.zh.md)
 
 -----
 
@@ -79,7 +99,7 @@ kind: "package-reference"
 - **无 Nightwatch transport**——不读写 mission 文件、result 文件、issue 评论、gate、lease 或 ledger。
 - **不验证 fence**——正整数只做形状验证；stale-writer 拒绝必须在 canonical effect owner 处原子完成，然后才能把 receipt 传入这里。
 - **无 dispatch 或 refill loop**——scheduler、worker execution、terminal closeout 与 refill 仍在此 adapter 外部。
-- **每个绑定只有一个有界 effect 身份**——`effectTool` 选择被投影的调用类别；更广的多 effect 编排延期处理。
+- **每个绑定只有一个有界 effect intent**——第二个匹配工具调用会被拒绝；不支持更广的多 effect 编排。
 - **Eyes-On 集成属于消费方工作**——投影已可供操作员使用，但本包不修改或托管 Eyes-On。
 
 <a id="dev-note"></a>
