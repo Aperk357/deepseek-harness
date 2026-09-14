@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-nightwatch-session",
   "description": "Nightwatch work-item binding and operator projection over one durable DSH session",
-  "version": "0.1.2-alpha.1",
+  "version": "0.1.5-rc.2",
   "private": true,
   "repository": {
     "type": "git",

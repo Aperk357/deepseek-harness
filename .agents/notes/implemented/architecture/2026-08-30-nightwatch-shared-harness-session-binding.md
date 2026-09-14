@@ -10,11 +10,11 @@ Eyes-On needs operator continuity across Nightwatch-supervised worker crashes. D
 
 ## Decision
 
-The private experimental DSH package appends one flushed `nightwatch/mission-bound` event per session and one caller-verified `nightwatch/effect-reconciled` receipt after `TOOL_OUTCOME_UNKNOWN`. Its strict fold validates package-owned relationships. The registered `nightwatchHarness` observation is durability-neutral; the persisted-read helper alone labels a complete persistence snapshot `PERSISTED`. `effectTool` is part of the immutable binding, so the adapter observes one configured bounded effect rather than claiming all tools.
+The private experimental DSH package appends one flushed `nightwatch/mission-bound` event per session and one caller-verified `nightwatch/effect-reconciled` receipt after `TOOL_OUTCOME_UNKNOWN`. The immutable binding carries Nightwatch's `workId`, `correlationId`, `failureDomain`, admitted `leaseId`/`fenceEpoch`, and `effectTool`; these are references, not transferred authority. Its strict incremental fold validates package-owned relationships without reading Session history directly. The registered `nightwatchHarness` observation is durability-neutral; the persisted-read helper alone labels a complete persistence snapshot `PERSISTED`.
 
 DSH owns only its transcript, checkpoint boundary, and derived projection. Nightwatch remains authoritative for mission lifecycle, audit, gates, evidence, and AAR. The actual effect owner remains authoritative for atomic idempotency and stale-fence rejection. Eyes-On remains a read-only control-plane composer.
 
-The PR1 hard-crash proof is extended rather than duplicated: it binds the synthetic Nightwatch work identity before dispatch, records the verified fenced receipt after recovery, proves no reinvocation, establishes the terminal `session/end-seed` fixed point, and then proves ten recovery cycles produce zero JSONL or SQLite byte drift.
+The PR1 hard-crash proof is ported to the current handle-based persistence API rather than duplicated: it binds the synthetic Nightwatch authority tuple before dispatch, records a verified successor-epoch receipt after recovery, proves no reinvocation, establishes the terminal `session/end-seed` fixed point, and then proves ten recovery cycles produce zero JSONL or SQLite byte drift.
 
 ## Consequences
 
@@ -30,4 +30,4 @@ Nightwatch files and Eyes-On HTTP routes remain outside this implemented slice. 
 
 **Create an Eyes-On continuity store.** Rejected because Eyes-On is the operator control plane and should compose canonical read models, not become another lifecycle authority.
 
-**Treat Nightwatch's advisory writer lease as an effect fence.** Rejected because the live primitive is git-writer coordination, not resource-side atomic stale-writer exclusion. Receipt recording therefore accepts only a caller-verified fence and makes no authority claim.
+**Treat the recorded lease/fence snapshot as live authority.** Rejected because the effect sink must atomically validate the current owner. The adapter rejects fence regression and conflicting same-epoch leases, admits caller-verified successor epochs, and makes no authority claim.

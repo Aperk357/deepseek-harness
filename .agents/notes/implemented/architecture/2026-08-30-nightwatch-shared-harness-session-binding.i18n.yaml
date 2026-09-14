@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-30-nightwatch-shared-harness-session-binding.md
-2026-08-30-nightwatch-shared-harness-session-binding.md: 846c0268caa035e3915455eb0a68536e483c5f3f
-2026-08-30-nightwatch-shared-harness-session-binding.zh.md: 82dfe1e6e5c3d535dac02754f37f04715381b4ae
+2026-08-30-nightwatch-shared-harness-session-binding.md: 15b6beb2ffa9bfeab188fed10e844161befbce96
+2026-08-30-nightwatch-shared-harness-session-binding.zh.md: 53a9aad0783e84790aac3e5ad29781402110852d

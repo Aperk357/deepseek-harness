@@ -10,6 +10,10 @@ export type NightwatchEffectPhase =
 /** Sanitized state derived from one DSH session log for operator clients. */
 export interface NightwatchHarnessObservation {
   workId: NightwatchWorkId
+  correlationId: string
+  failureDomain: string
+  leaseId: string
+  fenceEpoch: number
   sessionId: SessionId
   effectTool: string
   effectPhase: NightwatchEffectPhase
@@ -21,7 +25,8 @@ export interface NightwatchHarnessObservation {
     outcome: 'PENDING' | 'UNKNOWN' | 'SUCCEEDED' | 'FAILED'
     receipt: {
       attemptId: NightwatchAttemptId
-      fence: number
+      leaseId: string
+      fenceEpoch: number
       resultSha256: string
     } | null
   } | null
@@ -43,6 +48,10 @@ declare module '@deepseek-ai/dsh-session/types' {
      */
     'nightwatch/mission-bound': {
       workId: NightwatchWorkId
+      correlationId: string
+      failureDomain: string
+      leaseId: string
+      fenceEpoch: number
       sessionId: SessionId
       effectTool: string
     }
@@ -56,7 +65,8 @@ declare module '@deepseek-ai/dsh-session/types' {
       requestSha256: string
       resultSha256: string
       attemptId: NightwatchAttemptId
-      fence: number
+      leaseId: string
+      fenceEpoch: number
     }
   }
 }

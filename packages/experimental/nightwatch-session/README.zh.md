@@ -34,9 +34,9 @@ kind: "package-reference"
 - name: '@deepseek-ai/dsh-experimental-nightwatch-session'
 ```
 
-派发有界工作前，调用 `bindNightwatchMission(ctx, session, { workId, effectTool })`。该函数只追加一次 `nightwatch/mission-bound`，并要求有 session persistence listener 参与。完全相同的重复调用会再次 flush，但不增加事件或字节；身份漂移与更早出现的匹配工具调用都会被拒绝。
+派发有界工作前，调用 `bindNightwatchMission(ctx, session, { workId, correlationId, failureDomain, leaseId, fenceEpoch, effectTool })`。该函数只追加一次 `nightwatch/mission-bound`，并要求该 session 具有活跃的 persistence write handle。每个 barrier 都会回读持久前缀；仅有 listener 参与并不足够。完全相同的重复调用会再次 flush，但不增加事件或字节；权威元组漂移与更早出现的匹配工具调用都会被拒绝。
 
-崩溃恢复把已进入的工具调用修复成 `TOOL_OUTCOME_UNKNOWN` 后，当前 canonical effect owner 必须验证自己的 lease/fence 与 receipt。把已验证的 receipt 传给 `recordNightwatchReconciliation`。该函数检查绑定工作、工具调用身份、请求摘要、outcome-unknown 修复、正 fence 形状和已有 receipt。它记录证据，不授予权威。
+崩溃恢复把已进入的工具调用修复成 `TOOL_OUTCOME_UNKNOWN` 后，当前 canonical effect owner 必须验证实时 lease/fence 与 receipt。把包含已绑定 `leaseId` 和 `fenceEpoch` 的已验证 receipt 传给 `recordNightwatchReconciliation`。该函数检查绑定工作与 fence 快照、工具调用身份、请求摘要、outcome-unknown 修复和已有 receipt。它记录证据，不授予权威。
 
 从 `ctx.sessionProjections.snapshot(session).values.nightwatchHarness` 读取不声明持久性的 observation。要取得持久操作员状态，请把 session persistence 返回的 `SessionInspection` 传给 `projectNightwatchHarness(inspection)`。该 helper 在添加 `durability: 'PERSISTED'` 前验证元数据身份与连续事件序号；实时与 cold registry fold 都不会声称持久性。
 
@@ -55,8 +55,8 @@ kind: "package-reference"
 | 原语 | 权威方 | 本包行为 |
 |---|---|---|
 | Session transcript 与 checkpoint 边界 | DSH | 追加并 flush 绑定/receipt 证据 |
-| Mission、audit、gates、evidence、AAR | Nightwatch | 仅通过 `workId` 引用；此处绝不复制或修改 |
-| Lease/fence 与外部 effect | Nightwatch 或 effect sink 所有者 | 调用方验证；本包记录已验证 receipt |
+| Mission、audit、gates、evidence、AAR | Nightwatch | 通过 `workId`、`correlationId` 与 `failureDomain` 引用；此处绝不复制或修改 |
+| Lease/fence 与外部 effect | Nightwatch 或 effect sink 所有者 | 本包固定准入时的 `leaseId`/`fenceEpoch`；调用方验证实时权威，本包记录已验证 receipt |
 | 操作员组合 | Eyes-On | 可以只读消费净化投影 |
 
 投影报告绑定、effect 调用时捕获的 provider/model 路由、请求摘要、结果、receipt 元数据，以及最后观察到的序号。之后的 provider/model header 不会改写 effect 路由。Receipt reconciliation 不派发模型请求。
@@ -97,7 +97,7 @@ kind: "package-reference"
 
 - **实验性且未发布**——正式发布组合不包含本包。
 - **无 Nightwatch transport**——不读写 mission 文件、result 文件、issue 评论、gate、lease 或 ledger。
-- **不验证 fence**——正整数只做形状验证；stale-writer 拒绝必须在 canonical effect owner 处原子完成，然后才能把 receipt 传入这里。
+- **不查询实时 fence**——adapter 会拒绝 fence 回退和同 epoch 下不同 lease，同时接受调用方已验证的后继 epoch；但 stale-writer 拒绝仍必须在 canonical effect owner 处原子完成，然后才能把 receipt 传入这里。
 - **无 dispatch 或 refill loop**——scheduler、worker execution、terminal closeout 与 refill 仍在此 adapter 外部。
 - **每个绑定只有一个有界 effect intent**——第二个匹配工具调用会被拒绝；不支持更广的多 effect 编排。
 - **Eyes-On 集成属于消费方工作**——投影已可供操作员使用，但本包不修改或托管 Eyes-On。

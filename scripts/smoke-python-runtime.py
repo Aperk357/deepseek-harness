@@ -101,16 +101,6 @@ RESTART_FIRST_SESSION_ID = "process-one"
 RESTART_SECOND_SESSION_ID = "process-two"
 SNAPSHOT_PLUGIN_CODE = """\
 return (ctx) => {
-  let bound = false
-  ctx.effect(() => ctx.root.on('session/event', (session, event) => {
-    if (bound || session.header.parentSession !== undefined || event.type !== 'tool/result') return
-    bound = true
-    session.append('nightwatch/mission-bound', {
-      workId: 'NIGHTWATCH-PYTHON-SDK-SNAPSHOT',
-      sessionId: session.id,
-      effectTool: 'snapshot_double'
-    })
-  }))
   harness.registerTool(ctx, harness.defineTool({
     name: 'snapshot_double',
     description: 'Double a number for executable snapshot verification.',

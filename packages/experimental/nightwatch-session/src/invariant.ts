@@ -3,7 +3,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { applyNightwatchHarnessEvent, nightwatchHarnessProjectionDefinition } from './projection.ts'
+import { applyNightwatchHarnessEvent, type NightwatchHarnessState } from './projection.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-experimental-nightwatch-session'
 
@@ -16,22 +16,18 @@ export const inject = ['invariants']
 const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
   const validateSession = (session: Session): void => {
     try {
-      const state = session.events.reduce(
-        (current, event) => applyNightwatchHarnessEvent(current, event),
-        nightwatchHarnessProjectionDefinition.init(),
-      )
-      /* v8 ignore next -- null and mismatch are covered by fold and late-load tests respectively. */
+      const state = ctx.sessionProjections.stateOf(session, 'nightwatchHarness') as NightwatchHarnessState
       if (state.projection !== null && state.projection.sessionId !== session.id) {
         throw new Error(`binding session "${state.projection.sessionId}" does not match "${session.id}"`)
       }
     } catch (error: unknown) {
-      /* v8 ignore next -- strict folds throw Error instances. */
+      /* v8 ignore next -- projection folds throw Error instances. */
       const message = error instanceof Error ? error.message : String(error)
       fail(`cannot reconstruct session "${session.id}": ${message}`)
     }
   }
   for (const session of ctx.sessions.list()) validateSession(session)
-  ctx.on('session/created', (session) => { validateSession(session) }, { global: true })
+  ctx.on('session/created', validateSession, { global: true })
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
     const [session, event] = args as [Session, SessionEvent]
@@ -41,11 +37,8 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
       && event.type !== 'tool/call'
       && event.type !== 'tool/result') return
     try {
-      const state = session.events.reduce(
-        (current, committed) => applyNightwatchHarnessEvent(current, committed),
-        nightwatchHarnessProjectionDefinition.init(),
-      )
-      const next = applyNightwatchHarnessEvent(state, event)
+      const state = ctx.sessionProjections.stateOf(session, 'nightwatchHarness') as NightwatchHarnessState
+      const next = applyNightwatchHarnessEvent(structuredClone(state), event)
       if (next.projection !== null && next.projection.sessionId !== session.id) {
         throw new Error(`binding session "${next.projection.sessionId}" does not match "${session.id}"`)
       }
@@ -55,7 +48,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
       fail(`session event ${event.seq} violates the Nightwatch stream: ${message}`)
     }
   }, { global: true })
-}, { inject: ['sessions'] })
+}, { inject: ['sessions', 'sessionProjections'] })
 
 /**
  * Register this package's invariant companion.

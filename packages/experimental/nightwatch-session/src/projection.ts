@@ -9,7 +9,7 @@ import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { NightwatchAttemptId, NightwatchWorkId } from './brand.ts'
 import type { NightwatchHarnessObservation, PersistedNightwatchHarnessProjection } from './types.ts'
 
-interface NightwatchHarnessState {
+export interface NightwatchHarnessState {
   projection: NightwatchHarnessObservation | null
   route: { provider: string; model: string } | null
   preBindingToolNames: string[]
@@ -23,6 +23,10 @@ const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/u)
 const nonempty = z.string().min(1)
 const projectionSchema = z.object({
   workId: nonempty.transform(NightwatchWorkId),
+  correlationId: nonempty,
+  failureDomain: nonempty,
+  leaseId: nonempty,
+  fenceEpoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   sessionId: nonempty.transform(SessionId),
   effectTool: nonempty,
   effectPhase: z.enum(['IDLE', 'RUNNING', 'RECOVERY_REQUIRED', 'RECOVERED', 'SUCCEEDED', 'FAILED']),
@@ -32,7 +36,8 @@ const projectionSchema = z.object({
     outcome: z.enum(['PENDING', 'UNKNOWN', 'SUCCEEDED', 'FAILED']),
     receipt: z.object({
       attemptId: nonempty.transform(NightwatchAttemptId),
-      fence: z.number().int().positive(), resultSha256: sha256Schema,
+      leaseId: nonempty,
+      fenceEpoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), resultSha256: sha256Schema,
     }).strict().nullable(),
   }).strict().nullable(),
   lastEventSeq: z.number().int().nonnegative(), lastEventType: nonempty,
@@ -58,12 +63,15 @@ const stateSchema = z.object({
 }).strict()
 const bindingSchema = z.object({
   workId: nonempty.transform(NightwatchWorkId),
+  correlationId: nonempty, failureDomain: nonempty, leaseId: nonempty,
+  fenceEpoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   sessionId: nonempty.transform(SessionId), effectTool: nonempty,
 }).strict()
 const receiptSchema = z.object({
   workId: nonempty.transform(NightwatchWorkId), callId: nonempty.transform(ToolCallId),
   requestSha256: sha256Schema, resultSha256: sha256Schema,
-  attemptId: nonempty.transform(NightwatchAttemptId), fence: z.number().int().positive(),
+  attemptId: nonempty.transform(NightwatchAttemptId), leaseId: nonempty,
+  fenceEpoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
 }).strict()
 
 const observed = (current: NightwatchHarnessObservation, event: SessionEvent) => ({
@@ -82,7 +90,9 @@ export function applyNightwatchHarnessEvent(
       throw new Error('Nightwatch binding must precede its bounded effect call')
     }
     return { route: state.route, preBindingToolNames: [], projection: {
-      workId: data.workId, sessionId: data.sessionId, effectTool: data.effectTool,
+      workId: data.workId, correlationId: data.correlationId, failureDomain: data.failureDomain,
+      leaseId: data.leaseId, fenceEpoch: data.fenceEpoch,
+      sessionId: data.sessionId, effectTool: data.effectTool,
       effectPhase: 'IDLE', effect: null, lastEventSeq: event.seq,
       lastEventType: event.type, sourceUpdatedAt: event.time,
     } }
@@ -95,13 +105,16 @@ export function applyNightwatchHarnessEvent(
     }
     const effect = current.effect
     if (data.workId !== current.workId || effect === null || effect.outcome !== 'UNKNOWN'
+      || data.fenceEpoch < current.fenceEpoch
+      || (data.fenceEpoch === current.fenceEpoch && data.leaseId !== current.leaseId)
       || data.callId !== effect.callId || data.requestSha256 !== effect.requestSha256) {
       throw new Error('Nightwatch receipt does not match the bound work item and effect intent')
     }
     return { ...state, projection: {
       ...observed(current, event), effectPhase: 'RECOVERED',
       effect: { ...effect, outcome: 'SUCCEEDED', receipt: {
-        attemptId: data.attemptId, fence: data.fence, resultSha256: data.resultSha256,
+        attemptId: data.attemptId, leaseId: data.leaseId,
+        fenceEpoch: data.fenceEpoch, resultSha256: data.resultSha256,
       } },
     } }
   }
@@ -113,6 +126,7 @@ export function applyNightwatchHarnessEvent(
   }
   if (current === null) {
     if (event.type !== 'tool/call') return state
+    if (state.preBindingToolNames.includes(event.data.name)) return state
     return { ...state, preBindingToolNames: [...state.preBindingToolNames, event.data.name] }
   }
   if (event.type === 'tool/call' && event.data.name === current.effectTool) {

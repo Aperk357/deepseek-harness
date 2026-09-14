@@ -3,12 +3,17 @@
 import { createHash } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolCallId } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session } from '@deepseek-ai/dsh-session'
 import type { NightwatchAttemptId, NightwatchWorkId } from './brand.ts'
+import type { NightwatchHarnessState } from './projection.ts'
 
 /** Input that identifies the Nightwatch work item governing one DSH session. */
 export interface BindNightwatchMissionInput {
   workId: NightwatchWorkId
+  correlationId: string
+  failureDomain: string
+  leaseId: string
+  fenceEpoch: number
   effectTool: string
 }
 
@@ -19,58 +24,85 @@ export interface RecordNightwatchReconciliationInput {
   request: string
   result: string
   attemptId: NightwatchAttemptId
-  fence: number
+  leaseId: string
+  fenceEpoch: number
 }
 
 const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex')
 
-const bindingFor = (session: Session, input: BindNightwatchMissionInput) => {
-  const existing = session.events.find(event => event.type === 'nightwatch/mission-bound')
-  if (existing !== undefined && (existing.data.workId !== input.workId
-    || existing.data.sessionId !== session.id || existing.data.effectTool !== input.effectTool)) {
-    throw new Error(`DSH session "${session.id}" is already bound to Nightwatch work item "${existing.data.workId}"`)
+async function flushDurably(ctx: Context, session: Session, purpose: 'binding' | 'receipt'): Promise<void> {
+  const requiredEventCount = session.seq
+  if (!await ctx.sessions.flush(session)) throw new Error(`Nightwatch ${purpose} requires session persistence`)
+  const persistence = ctx.get('sessionPersistence')
+  if (persistence === undefined) throw new Error(`Nightwatch ${purpose} requires session persistence`)
+  let reader
+  try {
+    reader = await persistence.open(session.id, 'read')
+    const persisted = await reader.read()
+    if (persisted.events.length < requiredEventCount) {
+      throw new Error(`persisted prefix ends at ${persisted.events.length}, required prefix ends at ${requiredEventCount}`)
+    }
+  } catch (error: unknown) {
+    throw new Error(`Nightwatch ${purpose} requires session persistence`, { cause: error })
+  } finally {
+    await reader?.close()
   }
-  if (existing === undefined && session.events.some(event =>
-    event.type === 'tool/call' && event.data.name === input.effectTool)) {
+}
+
+const stateFor = (ctx: Context, session: Session): NightwatchHarnessState => {
+  const state = ctx.get('sessionProjections')?.stateOf(session, 'nightwatchHarness')
+  if (state === undefined) throw new Error('Nightwatch binding requires its session projection')
+  return state
+}
+
+const bindingFor = (ctx: Context, session: Session, input: BindNightwatchMissionInput) => {
+  const state = stateFor(ctx, session)
+  const existing = state.projection
+  if (existing !== null && (existing.workId !== input.workId
+    || existing.correlationId !== input.correlationId || existing.failureDomain !== input.failureDomain
+    || existing.leaseId !== input.leaseId || existing.fenceEpoch !== input.fenceEpoch
+    || existing.sessionId !== session.id || existing.effectTool !== input.effectTool)) {
+    throw new Error(`DSH session "${session.id}" is already bound to Nightwatch work item "${existing.workId}"`)
+  }
+  if (existing === null && state.preBindingToolNames.includes(input.effectTool)) {
     throw new Error('Nightwatch binding must precede its bounded effect call')
   }
   return existing
 }
 
-function receiptFor(session: Session, input: RecordNightwatchReconciliationInput) {
-  const binding = session.events.find(event => event.type === 'nightwatch/mission-bound')
-  if (binding === undefined || binding.data.workId !== input.workId || binding.data.sessionId !== session.id) {
+function receiptFor(ctx: Context, session: Session, input: RecordNightwatchReconciliationInput) {
+  const binding = stateFor(ctx, session).projection
+  if (binding === null || binding.workId !== input.workId || binding.sessionId !== session.id) {
     throw new Error(`DSH session "${session.id}" is not bound to Nightwatch work item "${input.workId}"`)
   }
-  const call = session.events.find((event): event is Extract<SessionEvent, { type: 'tool/call' }> =>
-    event.type === 'tool/call' && event.data.callId === input.callId && event.data.name === binding.data.effectTool)
   const requestSha256 = sha256(input.request)
-  if (call === undefined || sha256(call.data.arguments) !== requestSha256) {
+  const effect = binding.effect
+  if (effect === null || effect.callId !== input.callId || effect.requestSha256 !== requestSha256) {
     throw new Error('Nightwatch receipt does not match a durable bounded-effect intent')
   }
-  const latestOutcome = session.events.findLast((event): event is Extract<SessionEvent, { type: 'tool/result' }> =>
-    event.type === 'tool/result' && event.data.message.source.callId === input.callId)
-  if (latestOutcome?.data.error?.code !== 'TOOL_OUTCOME_UNKNOWN') {
+  if (input.fenceEpoch < binding.fenceEpoch
+    || (input.fenceEpoch === binding.fenceEpoch && input.leaseId !== binding.leaseId)) {
+    throw new Error('Nightwatch receipt does not match the bound lease fence')
+  }
+  if (effect.outcome !== 'UNKNOWN' && effect.receipt === null) {
     throw new Error('Nightwatch receipt requires a prior TOOL_OUTCOME_UNKNOWN repair')
   }
   return {
     requestSha256,
     resultSha256: sha256(input.result),
-    existing: session.events.find((event): event is Extract<SessionEvent, { type: 'nightwatch/effect-reconciled' }> =>
-      event.type === 'nightwatch/effect-reconciled' && event.data.callId === input.callId),
+    existing: effect.receipt,
   }
 }
 
 const receiptMatches = (
-  existing: Extract<SessionEvent, { type: 'nightwatch/effect-reconciled' }>,
+  existing: NonNullable<NonNullable<NightwatchHarnessState['projection']>['effect']>['receipt'],
   input: RecordNightwatchReconciliationInput,
-  requestSha256: string,
   resultSha256: string,
-): boolean => existing.data.workId === input.workId
-  && existing.data.requestSha256 === requestSha256
-  && existing.data.resultSha256 === resultSha256
-  && existing.data.attemptId === input.attemptId
-  && existing.data.fence === input.fence
+): boolean => existing !== null
+  && existing.resultSha256 === resultSha256
+  && existing.attemptId === input.attemptId
+  && existing.leaseId === input.leaseId
+  && existing.fenceEpoch === input.fenceEpoch
 
 /**
  * Bind one Nightwatch work item to a live session and flush before returning.
@@ -86,20 +118,28 @@ export async function bindNightwatchMission(
   session: Session,
   input: BindNightwatchMissionInput,
 ): Promise<void> {
-  if (input.workId.length === 0 || input.effectTool.length === 0) {
-    throw new Error('Nightwatch binding requires non-empty work and effect identities')
+  if (input.workId.length === 0 || input.correlationId.length === 0 || input.failureDomain.length === 0
+    || input.leaseId.length === 0 || input.effectTool.length === 0) {
+    throw new Error('Nightwatch binding requires non-empty authority and effect identities')
   }
-  const before = bindingFor(session, input)
-  if (!await ctx.sessions.flush(session)) throw new Error('Nightwatch binding requires session persistence')
-  const after = bindingFor(session, input)
-  if (before !== undefined || after !== undefined) return
+  if (!Number.isSafeInteger(input.fenceEpoch) || input.fenceEpoch < 1) {
+    throw new Error('Nightwatch binding fence epoch must be a positive safe integer')
+  }
+  const before = bindingFor(ctx, session, input)
+  await flushDurably(ctx, session, 'binding')
+  const after = bindingFor(ctx, session, input)
+  if (before !== null || after !== null) return
   session.append('nightwatch/mission-bound', {
     workId: input.workId,
+    correlationId: input.correlationId,
+    failureDomain: input.failureDomain,
+    leaseId: input.leaseId,
+    fenceEpoch: input.fenceEpoch,
     sessionId: session.id,
     effectTool: input.effectTool,
   })
   /* v8 ignore next -- preflight and postflush share the same persistence participant. */
-  if (!await ctx.sessions.flush(session)) throw new Error('Nightwatch binding requires session persistence')
+  await flushDurably(ctx, session, 'binding')
 }
 
 /**
@@ -117,28 +157,28 @@ export async function recordNightwatchReconciliation(
   session: Session,
   input: RecordNightwatchReconciliationInput,
 ): Promise<void> {
-  if (input.workId.length === 0 || input.attemptId.length === 0) {
-    throw new Error('Nightwatch receipt requires non-empty work and attempt identities')
+  if (input.workId.length === 0 || input.attemptId.length === 0 || input.leaseId.length === 0) {
+    throw new Error('Nightwatch receipt requires non-empty work, lease, and attempt identities')
   }
-  if (!Number.isSafeInteger(input.fence) || input.fence < 1) {
-    throw new Error('Nightwatch receipt fence must be a positive safe integer')
+  if (!Number.isSafeInteger(input.fenceEpoch) || input.fenceEpoch < 1) {
+    throw new Error('Nightwatch receipt fence epoch must be a positive safe integer')
   }
-  let state = receiptFor(session, input)
-  if (state.existing !== undefined) {
-    if (receiptMatches(state.existing, input, state.requestSha256, state.resultSha256)) {
+  let state = receiptFor(ctx, session, input)
+  if (state.existing !== null) {
+    if (receiptMatches(state.existing, input, state.resultSha256)) {
       /* v8 ignore next -- exact retries reuse the already-proven persistence participant. */
-      if (!await ctx.sessions.flush(session)) throw new Error('Nightwatch receipt requires session persistence')
+      await flushDurably(ctx, session, 'receipt')
       return
     }
     throw new Error('Nightwatch reconciliation conflicts with the durable receipt')
   }
-  if (!await ctx.sessions.flush(session)) throw new Error('Nightwatch receipt requires session persistence')
-  state = receiptFor(session, input)
-  if (state.existing !== undefined) {
-    if (!receiptMatches(state.existing, input, state.requestSha256, state.resultSha256)) {
+  await flushDurably(ctx, session, 'receipt')
+  state = receiptFor(ctx, session, input)
+  if (state.existing !== null) {
+    if (!receiptMatches(state.existing, input, state.resultSha256)) {
       throw new Error('Nightwatch reconciliation conflicts with the durable receipt')
     }
-    if (!await ctx.sessions.flush(session)) throw new Error('Nightwatch receipt requires session persistence')
+    await flushDurably(ctx, session, 'receipt')
     return
   }
   session.append('nightwatch/effect-reconciled', {
@@ -147,8 +187,9 @@ export async function recordNightwatchReconciliation(
     requestSha256: state.requestSha256,
     resultSha256: state.resultSha256,
     attemptId: input.attemptId,
-    fence: input.fence,
+    leaseId: input.leaseId,
+    fenceEpoch: input.fenceEpoch,
   })
   /* v8 ignore next -- preflight and postflush share the same persistence participant. */
-  if (!await ctx.sessions.flush(session)) throw new Error('Nightwatch receipt requires session persistence')
+  await flushDurably(ctx, session, 'receipt')
 }

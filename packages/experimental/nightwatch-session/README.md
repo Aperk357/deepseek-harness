@@ -34,9 +34,9 @@ Mount the session store, projection registry, then this plugin:
 - name: '@deepseek-ai/dsh-experimental-nightwatch-session'
 ```
 
-Before dispatching bounded work, call `bindNightwatchMission(ctx, session, { workId, effectTool })`. The function appends `nightwatch/mission-bound` once and requires a participating session persistence listener. Exact repeats flush again but add no event or bytes; identity drift and an earlier matching tool call reject.
+Before dispatching bounded work, call `bindNightwatchMission(ctx, session, { workId, correlationId, failureDomain, leaseId, fenceEpoch, effectTool })`. The function appends `nightwatch/mission-bound` once and requires an active persistence write handle for the session. Every barrier reads the persisted prefix back; listener participation alone is insufficient. Exact repeats flush again but add no event or bytes; authority-tuple drift and an earlier matching tool call reject.
 
-After crash recovery has repaired an entered tool call to `TOOL_OUTCOME_UNKNOWN`, the current canonical effect owner must validate its lease/fence and receipt. Pass that verified receipt to `recordNightwatchReconciliation`. The function checks the bound work, tool call identity, request digest, outcome-unknown repair, positive fence shape, and existing receipt. It records evidence; it does not grant authority.
+After crash recovery has repaired an entered tool call to `TOOL_OUTCOME_UNKNOWN`, the current canonical effect owner must validate its live lease/fence and receipt. Pass that verified receipt, including the bound `leaseId` and `fenceEpoch`, to `recordNightwatchReconciliation`. The function checks the bound work and fence snapshot, tool call identity, request digest, outcome-unknown repair, and existing receipt. It records evidence; it does not grant authority.
 
 Read `ctx.sessionProjections.snapshot(session).values.nightwatchHarness` for a durability-neutral observation. For a durable operator status, call `projectNightwatchHarness(inspection)` with the `SessionInspection` returned by session persistence. The helper verifies metadata identity and a contiguous event sequence before adding `durability: 'PERSISTED'`; live and cold registry folds deliberately make no durability claim.
 
@@ -55,8 +55,8 @@ If this experimental package cannot be mounted, keep Nightwatch on its existing 
 | Primitive | Owner | Package behavior |
 |---|---|---|
 | Session transcript and checkpoint boundary | DSH | Appends and flushes binding/receipt evidence |
-| Mission, audit, gates, evidence, AAR | Nightwatch | Referenced by `workId`; never copied or mutated here |
-| Lease/fence and external effect | Nightwatch or owning effect sink | Caller validates; package records the verified receipt |
+| Mission, audit, gates, evidence, AAR | Nightwatch | Referenced by `workId`, `correlationId`, and `failureDomain`; never copied or mutated here |
+| Lease/fence and external effect | Nightwatch or owning effect sink | Package pins the admitted `leaseId`/`fenceEpoch`; caller validates live authority and package records the verified receipt |
 | Operator composition | Eyes-On | May consume sanitized projection read-only |
 
 The projection reports binding, the provider/model route captured when the bounded effect was called, request digest, outcome, receipt metadata, and last observed sequence. Later provider/model headers do not rewrite the effect route. Receipt reconciliation dispatches no model request.
@@ -97,7 +97,7 @@ None; projection and reconciliation preserve existing request prefixes because t
 
 - **Experimental and unshipped** — official release compositions do not include this package.
 - **No Nightwatch transport** — it does not read or write mission files, result files, issue comments, gates, leases, or ledgers.
-- **No fence validation** — a positive integer is shape validation only; stale-writer rejection must occur atomically at the canonical effect owner before a receipt is passed here.
+- **No live fence lookup** — the adapter rejects fence regression and a different lease at the same epoch while admitting caller-verified successor epochs, but stale-writer rejection must still occur atomically at the canonical effect owner before a receipt is passed here.
 - **No dispatch or refill loop** — scheduler, worker execution, terminal closeout, and refill remain outside this adapter.
 - **One bounded effect intent per binding** — a second matching tool call is rejected; broader multi-effect orchestration is unsupported.
 - **Eyes-On integration is consumer work** — the projection is operator-ready, but this package does not modify or host Eyes-On.

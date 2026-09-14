@@ -66,6 +66,8 @@ describe('Loader lifecycle composition', () => {
     const session = loaded.sessions.create(SessionId('nightwatch-composed'))
     session.append('nightwatch/mission-bound', {
       workId: NightwatchWorkId('nightwatch-work-1'),
+      correlationId: 'correlation-131', failureDomain: 'nightwatch-harness',
+      leaseId: 'lease-1', fenceEpoch: 1,
       sessionId: session.id,
       effectTool: 'nightwatch_bounded_effect',
     })
