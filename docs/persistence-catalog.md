@@ -578,7 +578,7 @@ Source: [`packages/api/session-controller/src/types.ts:40`](../packages/api/sess
 
 Types: [ToolCallId](subsystems/core.md)
 
-Source: [`packages/experimental/nightwatch-session/src/types.ts:62`](../packages/experimental/nightwatch-session/src/types.ts)
+Source: [`packages/experimental/nightwatch-session/src/types.ts:63`](../packages/experimental/nightwatch-session/src/types.ts)
 
 <a id="nightwatchmission-bound--log-only"></a>
 
@@ -600,7 +600,7 @@ Source: [`packages/experimental/nightwatch-session/src/types.ts:62`](../packages
 }
 ```
 
-Source: [`packages/experimental/nightwatch-session/src/types.ts:49`](../packages/experimental/nightwatch-session/src/types.ts)
+Source: [`packages/experimental/nightwatch-session/src/types.ts:50`](../packages/experimental/nightwatch-session/src/types.ts)
 
 ### `permission/*`
 
