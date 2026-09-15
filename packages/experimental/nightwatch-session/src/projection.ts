@@ -9,6 +9,7 @@ import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { NightwatchAttemptId, NightwatchWorkId } from './brand.ts'
 import type { NightwatchHarnessObservation, PersistedNightwatchHarnessProjection } from './types.ts'
 
+/** Fold state held by the Nightwatch session projection. */
 export interface NightwatchHarnessState {
   projection: NightwatchHarnessObservation | null
   route: { provider: string; model: string } | null
@@ -79,6 +80,11 @@ const observed = (current: NightwatchHarnessObservation, event: SessionEvent) =>
 })
 
 /** Apply one candidate event, rejecting invalid package-owned relationships. */
+/**
+ * @param state - Current folded Nightwatch projection state.
+ * @param event - Candidate persisted session event to apply.
+ * @returns The next folded projection state.
+ */
 export function applyNightwatchHarnessEvent(
   state: NightwatchHarnessState,
   event: SessionEvent,

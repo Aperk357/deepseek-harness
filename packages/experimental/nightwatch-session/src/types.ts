@@ -4,6 +4,7 @@ import type { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { NightwatchAttemptId, NightwatchWorkId } from './brand.ts'
 
+/** Durable phase of a bounded Nightwatch effect. */
 export type NightwatchEffectPhase =
   | 'IDLE' | 'RUNNING' | 'RECOVERY_REQUIRED' | 'RECOVERED' | 'SUCCEEDED' | 'FAILED'
 
