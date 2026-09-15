@@ -16,7 +16,7 @@ jobs:
     name: Issue policy
     # Fork pull requests cannot access the repository App credentials. The
     # policy job is authoritative for trusted in-repository branches only.
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.repository_owner == 'deepseek-harness' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out trusted policy
