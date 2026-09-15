@@ -556,6 +556,54 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/api/session-controller/src/types.ts:40`](../packages/api/session-controller/src/types.ts)
 
+### `nightwatch/*`
+
+<a id="nightwatcheffect-reconciled--log-only"></a>
+
+#### `nightwatch/effect-reconciled` — log-only
+
+```ts persistence-catalog
+/**
+ * Records a caller-verified canonical receipt without making DSH its authority.
+ * @param data - work and call identities, request/result digests, attempt, and fence.
+ */
+'nightwatch/effect-reconciled': {
+  workId: NightwatchWorkId
+  callId: ToolCallId
+  requestSha256: string
+  resultSha256: string
+  attemptId: NightwatchAttemptId
+  leaseId: string
+  fenceEpoch: number
+}
+```
+
+类型：[ToolCallId](subsystems/core.zh.md)
+
+来源：[`packages/experimental/nightwatch-session/src/types.ts:62`](../packages/experimental/nightwatch-session/src/types.ts)
+
+<a id="nightwatchmission-bound--log-only"></a>
+
+#### `nightwatch/mission-bound` — log-only
+
+```ts persistence-catalog
+/**
+ * Binds one Nightwatch work item to this exact DSH session.
+ * @param data - work identity, session identity, and bounded effect tool name.
+ */
+'nightwatch/mission-bound': {
+  workId: NightwatchWorkId
+  correlationId: string
+  failureDomain: string
+  leaseId: string
+  fenceEpoch: number
+  sessionId: SessionId
+  effectTool: string
+}
+```
+
+来源：[`packages/experimental/nightwatch-session/src/types.ts:49`](../packages/experimental/nightwatch-session/src/types.ts)
+
 ### `permission/*`
 
 <a id="permissionpreset--log-only"></a>

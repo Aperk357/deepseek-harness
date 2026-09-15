@@ -1,0 +1,155 @@
+import { createHash } from 'node:crypto'
+import { describe, expect, it } from 'vitest'
+import { SessionId, SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionInspection } from '@deepseek-ai/dsh-session-persistence'
+import { nightwatchHarnessProjectionDefinition, projectNightwatchHarness } from '../src/projection.ts'
+
+const digest = (value: string): string => createHash('sha256').update(value).digest('hex')
+const AUTHORITY = {
+  correlationId: 'correlation-131', failureDomain: 'nightwatch-harness',
+  leaseId: 'lease-1', fenceEpoch: 1,
+}
+function event(seq: number, type: string, data: Record<string, unknown>): SessionEvent {
+  return { type, seq, time: 1_000 + seq, data } as unknown as SessionEvent
+}
+const binding = (sessionId = 'nightwatch-session', seq = 0) => event(seq, 'nightwatch/mission-bound', {
+  workId: 'nightwatch-work', ...AUTHORITY, sessionId: SessionId(sessionId), effectTool: 'bounded_effect',
+})
+const call = (seq = 2) => event(seq, 'tool/call', {
+  turn: 1, step: 1, callId: 'effect-1', name: 'bounded_effect', arguments: '{}',
+})
+const unknown = (seq = 3) => event(seq, 'tool/result', {
+  turn: 1, step: 1, message: { source: { kind: 'tool', callId: 'effect-1' } },
+  error: { name: 'ToolOutcomeUnknownError', code: 'TOOL_OUTCOME_UNKNOWN' },
+})
+const receipt = (overrides: Record<string, unknown> = {}, seq = 3) => event(seq, 'nightwatch/effect-reconciled', {
+  workId: 'nightwatch-work', callId: 'effect-1', requestSha256: digest('{}'),
+  resultSha256: digest('result'), attemptId: 'attempt-1',
+  leaseId: AUTHORITY.leaseId, fenceEpoch: AUTHORITY.fenceEpoch, ...overrides,
+})
+function live(events: SessionEvent[]) {
+  return events.reduce(
+    (state, item) => nightwatchHarnessProjectionDefinition.apply(state, item),
+    nightwatchHarnessProjectionDefinition.init(),
+  ).projection
+}
+function project(events: readonly SessionEvent[], sessionId = 'nightwatch-session') {
+  const inspection: SessionInspection = {
+    meta: { version: 3, id: SessionId(sessionId), createdAt: 1_000, isSeeded: false },
+    inheritedEventCount: SessionLogOffset(0),
+    events,
+  }
+  return projectNightwatchHarness(inspection)
+}
+
+describe('Nightwatch Harness operator projection', () => {
+  it('keeps live observation durability-neutral and persisted reads explicit', () => {
+    expect(live([binding()])).toMatchObject({
+      workId: 'nightwatch-work', effectPhase: 'IDLE', effect: null,
+      lastEventType: 'nightwatch/mission-bound',
+    })
+    expect(live([binding()])).not.toHaveProperty('durability')
+    expect(project([binding()]))
+      .toMatchObject({ durability: 'PERSISTED', effectPhase: 'IDLE' })
+    expect(() => project([binding()], 'other'))
+      .toThrow('does not match')
+  })
+
+  it('captures the route at effect intent and preserves it across a provider swap', () => {
+    const projected = project([
+      binding(),
+      event(1, 'request/header', { header: { config: { provider: 'provider-a', model: 'model-a' } } }),
+      call(),
+      event(3, 'request/header', { header: { config: { provider: 'provider-b', model: 'model-b' } } }),
+    ])
+    expect(projected?.effect).toMatchObject({ provider: 'provider-a', model: 'model-a', outcome: 'PENDING' })
+  })
+
+  it('projects unknown outcome and matching fenced reconciliation', () => {
+    const projected = project([
+      binding(), call(1), unknown(2), receipt(),
+    ])
+    expect(projected).toMatchObject({
+      effectPhase: 'RECOVERED', effect: {
+        outcome: 'SUCCEEDED', receipt: {
+          attemptId: 'attempt-1', leaseId: 'lease-1', fenceEpoch: 1, resultSha256: digest('result'),
+        },
+      },
+    })
+    expect(() => project([
+      binding(), call(1), unknown(2), receipt(),
+      event(4, 'tool/result', {
+        message: { source: { kind: 'tool', callId: 'effect-1' } },
+        error: { name: 'ToolOutcomeUnknownError', code: 'TOOL_OUTCOME_UNKNOWN' },
+      }),
+    ])).toThrow('already has a terminal outcome')
+  })
+
+  it('rejects contradictory cached phase, outcome, and receipt state', () => {
+    const folded = [binding(), call(1)].reduce(
+      (state, item) => nightwatchHarnessProjectionDefinition.apply(state, item),
+      nightwatchHarnessProjectionDefinition.init(),
+    )
+    expect(() => nightwatchHarnessProjectionDefinition.stateSchema.parse({
+      ...folded,
+      projection: { ...folded.projection, effectPhase: 'IDLE' },
+    })).toThrow('contradicts')
+  })
+
+  it.each([
+    ['work identity', { workId: 'other' }],
+    ['call identity', { callId: 'other' }],
+    ['request digest', { requestSha256: digest('other') }],
+    ['same-epoch lease identity', { leaseId: 'other' }],
+  ])('rejects receipt drift: %s', (_name, mutation) => {
+    expect(() => project([
+      binding(), call(1), unknown(2), receipt(mutation),
+    ])).toThrow('Nightwatch receipt does not match')
+  })
+
+  it('rejects malformed events, duplicate bindings, and a second unresolved effect', () => {
+    expect(() => project([receipt({}, 0)]))
+      .toThrow('Nightwatch receipt does not match')
+    expect(() => project([
+      binding(), event(1, 'nightwatch/mission-bound', {
+        workId: 'nightwatch-work', ...AUTHORITY,
+        sessionId: 'nightwatch-session', effectTool: 'bounded_effect',
+      }),
+    ])).toThrow('already has a mission binding')
+    expect(() => project([binding(), call(1), call(2)]))
+      .toThrow('already has a bounded effect call')
+    expect(() => project([binding(), call(1), unknown(2), receipt({ fenceEpoch: 0 })]))
+      .toThrow()
+  })
+
+  it('makes dropped events reconstructable without inventing state', () => {
+    expect(() => project([binding(), unknown(2)])).toThrow('non-contiguous')
+    expect(() => project([call(0), binding('nightwatch-session', 1)])).toThrow('must precede')
+    expect(project([binding(), call(1), unknown(2)]))
+      .toMatchObject({ effectPhase: 'RECOVERY_REQUIRED', effect: { outcome: 'UNKNOWN', receipt: null } })
+  })
+
+  it('projects pre-binding routes, definitive outcomes, and irrelevant events', () => {
+    const header = event(0, 'request/header', {
+      header: { config: { provider: 'provider-a', model: 'model-a' } },
+    })
+    expect(project([header])).toBeNull()
+    expect(project([event(0, 'turn/start', {})])).toBeNull()
+    const prefix = [header, binding('nightwatch-session', 1), call(2)]
+    expect(project([
+      ...prefix,
+      event(3, 'tool/result', {
+        message: { source: { kind: 'tool', callId: 'effect-1' } },
+      }),
+    ])).toMatchObject({ effectPhase: 'SUCCEEDED', effect: { outcome: 'SUCCEEDED' } })
+    expect(project([
+      ...prefix,
+      event(3, 'tool/result', {
+        message: { source: { kind: 'tool', callId: 'effect-1' } },
+        error: { name: 'ToolError', code: 'FAILED' },
+      }),
+    ])).toMatchObject({ effectPhase: 'FAILED', effect: { outcome: 'FAILED' } })
+    expect(project([binding(), event(1, 'turn/start', {})]))
+      .toMatchObject({ lastEventType: 'turn/start', effectPhase: 'IDLE' })
+  })
+})
