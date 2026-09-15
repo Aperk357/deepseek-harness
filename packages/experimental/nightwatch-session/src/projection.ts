@@ -79,8 +79,7 @@ const observed = (current: NightwatchHarnessObservation, event: SessionEvent) =>
   ...current, lastEventSeq: event.seq, lastEventType: event.type, sourceUpdatedAt: event.time,
 })
 
-/** Apply one candidate event, rejecting invalid package-owned relationships. */
-/**
+/** Apply one candidate event, rejecting invalid package-owned relationships.
  * @param state - Current folded Nightwatch projection state.
  * @param event - Candidate persisted session event to apply.
  * @returns The next folded projection state.
