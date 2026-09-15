@@ -21,7 +21,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
 
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/u)
 const nonempty = z.string().min(1)
-const projectionSchema = z.object({
+const bindingFields = {
   workId: nonempty.transform(NightwatchWorkId),
   correlationId: nonempty,
   failureDomain: nonempty,
@@ -29,6 +29,9 @@ const projectionSchema = z.object({
   fenceEpoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   sessionId: nonempty.transform(SessionId),
   effectTool: nonempty,
+}
+const projectionSchema = z.object({
+  ...bindingFields,
   effectPhase: z.enum(['IDLE', 'RUNNING', 'RECOVERY_REQUIRED', 'RECOVERED', 'SUCCEEDED', 'FAILED']),
   effect: z.object({
     callId: nonempty.transform(ToolCallId), requestSha256: sha256Schema,
@@ -62,10 +65,7 @@ const stateSchema = z.object({
   preBindingToolNames: z.array(nonempty),
 }).strict()
 const bindingSchema = z.object({
-  workId: nonempty.transform(NightwatchWorkId),
-  correlationId: nonempty, failureDomain: nonempty, leaseId: nonempty,
-  fenceEpoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-  sessionId: nonempty.transform(SessionId), effectTool: nonempty,
+  ...bindingFields,
 }).strict()
 const receiptSchema = z.object({
   workId: nonempty.transform(NightwatchWorkId), callId: nonempty.transform(ToolCallId),
